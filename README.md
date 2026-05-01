@@ -15,6 +15,9 @@
 [![Ollama](https://img.shields.io/badge/Ollama-local%20embeddings-000)](https://ollama.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
 [![Version](https://img.shields.io/badge/version-2.0.0--rc1-green)](#)
+[![Developer](https://img.shields.io/badge/developer-NABILNET.AI-6e56cf?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyTDIgNy4xN0wxMiAxMi4zM0wyMiA3LjE3WiIvPjwvc3ZnPg==)](https://nabilnet.ai)
+
+**Developed by [NABILNET.AI](https://nabilnet.ai)**
 
 </div>
 
@@ -490,6 +493,14 @@ scripts/
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+## Developer
+
+Built and maintained by **[NABILNET.AI](https://nabilnet.ai)**.
+
+For inquiries, integrations, or sovereign-grade Claude Code tooling, visit [nabilnet.ai](https://nabilnet.ai).
 
 ### 🗺️ File Architecture
 

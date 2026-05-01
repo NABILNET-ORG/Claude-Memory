@@ -2,6 +2,8 @@
 
 An MCP server that gives Claude persistent, project-scoped memory via Supabase vector storage and Ollama embeddings. This file is the agent-facing operating manual; see `README.md` for operator setup and the Golden Startup Prompt, and `ARCHITECTURE.md` for internal architecture.
 
+**Developer:** [NABILNET.AI](https://nabilnet.ai)
+
 ---
 
 ## Hard Rules
