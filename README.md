@@ -2,7 +2,7 @@
 
 # Smart Claude Memory
 
-![Smart Claude Memory v2.0.0-rc1 Schematic](images/GPT%20SMC%20v2.0-rc1.png)
+![Smart Claude Memory v2.0.0-rc1 Master Schematic](images/SCM-v2-Master-Schematic.png)
 
 *Master schematic — the definitive visual reference for the Smart Claude Memory v2.0.0-rc1 production baseline.*
 
