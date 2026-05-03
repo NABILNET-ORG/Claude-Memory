@@ -87,7 +87,14 @@ The agent never writes to GLOBAL silently — promotion always waits on user con
   1. **Context Saturation** — the current session's context-window usage exceeds 50%.
   2. **Explicit User Command** — the user explicitly requests it (e.g., "session end", "end session", "wrap up").
 
-When a trigger fires, execute the four steps below in order. No partial wrap-up.
+When a trigger fires, execute the five steps below in order. No partial wrap-up.
+
+**0. Mandatory Living Docs Sync.** The Agent MUST call \`manage_backlog({ action: "session_end" })\` FIRST — before writing the report — to trigger the automatic synchronization of two living documents:
+
+- **README.md** — the "Recent Progress" section is rewritten to reflect the 5 most recent archived tasks.
+- **ARCHITECTURE.md** — the Mermaid diagrams are refreshed to match the current project tree.
+
+After the call returns, the Agent MUST verify both \`readme_sync.updated === true\` AND \`architecture_sync.updated === true\` in the response. If either is \`false\` (or missing), investigate the cause and resolve it before proceeding to Step 1. Living Docs Sync is non-negotiable: README and ARCHITECTURE are the public-facing surface of the project, and a wrap-up that leaves them stale ships a lie to the next agent.
 
 **1. Mandatory Detailed Report.** Before calling \`manage_backlog({ action: "session_end" })\`, the Agent MUST write a comprehensive narrative report to \`docs/session-reports/SESSION-N-REPORT.md\` (where N is the current session number). The report MUST include:
 - Summary of all code changes (files touched, what changed, why).

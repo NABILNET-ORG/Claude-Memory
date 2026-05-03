@@ -122,7 +122,7 @@ A session is NOT ended after every mission. Two triggers — and only these two 
 - **Context Saturation.** Current session's context-window usage exceeds 50%.
 - **Explicit User Command.** The user types something like "session end", "end session", or "wrap up".
 
-Task completion alone is NOT a wrap-up trigger. Sessions span multiple missions to preserve flow and context. When a trigger fires, the Agent calls `manage_backlog({ action: "session_end" })` and follows the Atomic Wrap-Up Ritual (mandatory report, auto-commit, dynamic numbering, next-session command).
+Task completion alone is NOT a wrap-up trigger. Sessions span multiple missions to preserve flow and context. When a trigger fires, the Agent FIRST calls `manage_backlog({ action: "session_end" })` and verifies both `readme_sync.updated === true` AND `architecture_sync.updated === true` in the response — this is the **Mandatory Living Docs Sync** (Step 0 of the wrap-up ritual) that keeps `README.md` (Recent Progress: 5 most recent archived tasks) and `ARCHITECTURE.md` (refreshed Mermaid diagrams) current. Only after the sync verifies green does the Agent proceed with the rest of the Atomic Wrap-Up Ritual: mandatory report, auto-commit, dynamic numbering, next-session command. A wrap-up that leaves living docs stale ships a lie to the next agent and is forbidden.
 
 ---
 
