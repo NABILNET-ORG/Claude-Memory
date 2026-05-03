@@ -6,6 +6,12 @@ An MCP server that gives Claude persistent, project-scoped memory via Supabase v
 
 ---
 
+## Terminology
+
+- **SCM** = Smart-Claude-Memory MCP. Canonical shorthand used throughout this document and across all sovereign-bound repositories.
+
+---
+
 ## Hard Rules
 
 These are enforced by `hooks/md-policy.py` (PreToolUse gate on Write/Edit/Bash) and the Architecture Guard. Violations are blocked at the hook level, not just discouraged.
@@ -47,30 +53,43 @@ These are enforced by `hooks/md-policy.py` (PreToolUse gate on Write/Edit/Bash) 
 
 ---
 
-## Memory Management
+## Sovereign Memory Protocol
 
-**Sovereign Taxonomy.** Every `save_memory` call should set `metadata.type` to one of `DECISION`, `PATTERN`, `ERROR`, `LOG`. Saves without a type are tolerated but lose the GIN-indexed pre-filter and become harder to retrieve.
+This repository is bound to the Smart Claude Memory (SCM) Sovereign Memory Protocol. The agent operating here MUST follow these rules. They take precedence over generic boot prompts when in conflict.
 
-**Sovereign Vetting (Rule 10) — runtime-enforced.** Setting `metadata.is_global: true` routes the row to `project_id='GLOBAL'`. The server REJECTS any global save whose `metadata.global_rationale` is missing, non-string, or under 10 trimmed characters with the error `SOVEREIGN VETTING FAILED: ...`. There is no soft path — provide a real rationale or keep the memory local.
+### Sovereign Taxonomy
 
-**Cross-Project Test.** A memory qualifies as `is_global` only if: *with the current project deleted tomorrow, would this entry still be a gold-standard reference for other projects?* If no, keep it local. Project-specific implementation choices, ticket-driven fixes, and "how this repo wires X" notes all fail the test by default.
+Every `save_memory` call MUST set `metadata.type` to one of:
 
-**Proactive Sovereign Scout (active behavior).** The agent is not a passive storage handler — it actively scouts for global candidates. **Whenever a session produces a major architectural decision, a branding change, or a universal bug fix, the agent MUST evaluate the work against the Cross-Project Test before closing the task or session.** If the work passes, the agent proposes promotion in this exact form before saving:
+- `DECISION` — architectural choices + rationale
+- `PATTERN` — code standards / cross-project conventions
+- `ERROR` — bug post-mortems + fixes
+- `LOG` — general session progress
+
+Saves without a type lose the GIN-indexed pre-filter and become harder to retrieve.
+
+### Rule 10 — Sovereign Vetting (runtime-enforced)
+
+Setting `metadata.is_global: true` routes the row to `project_id='GLOBAL'`. The server REJECTS any global save whose `metadata.global_rationale` is missing, non-string, or under 10 trimmed characters with the error `SOVEREIGN VETTING FAILED: ...`. There is no soft path — provide a real rationale or keep the memory local.
+
+**Cross-Project Test.** A memory qualifies as `is_global` only if: *with the current project deleted tomorrow, would this entry still be a gold-standard reference for other projects?* If no, keep it local.
+
+### Proactive Sovereign Scout (active behavior)
+
+The agent is not a passive storage handler — it actively scouts for global candidates. Whenever a session produces a major architectural decision, a branding change, or a universal bug fix, the agent MUST evaluate the work against the Cross-Project Test before closing the task or session. If it passes, the agent proposes promotion in this exact form before saving:
 
 > "This looks like a Global Candidate. Should I save it to the GLOBAL vault? If so, I suggest this rationale: *[one- or two-sentence rationale tied to the universal truth]*."
 
-The agent never writes to GLOBAL silently — promotion always waits on user confirmation. Project-local saves continue to flow through `save_memory` without prompting.
+The agent never writes to GLOBAL silently — promotion always waits on user confirmation.
 
-**Triggers (non-exhaustive) that warrant a Scout proposal.**
-- Cross-cutting architectural choices (delegation patterns, vetting gates, taxonomy definitions).
-- Branding, naming, or product-identity decisions that should propagate across repos.
-- Bug fixes whose root cause is a class of error any project could hit (race conditions, hash-gate misuse, schema/dimension drift).
-- New universal rules added to `CLAUDE.md`, `README.md`, or the Golden Startup Prompt.
+### SCM Tool Conventions
 
-**Anti-triggers (keep local).**
-- Repo-specific file paths, version strings, or migration scripts.
-- One-off configuration tweaks.
-- Session progress notes (`LOG`) and per-feature `DECISION` rows tied to this codebase.
+- `init_project()` — first call of every session; verifies env, hook, MCP registration, dist, Core 3 sync, and binds this repo to the Sovereign Memory Protocol.
+- `sync_local_memory()` — second call; aligns the vector DB with local notes (incremental, hash-gated).
+- `search_memory({ query, metadata_filter })` — typed retrieval; default dual-scope (project + GLOBAL).
+- `save_memory({ content, metadata: { type } })` — typed write; never set `is_global: true` without `global_rationale`.
+- `manage_backlog({ action: "session_end" })` — session close; flushes backlog, regenerates diagrams, runs `sync_artefacts`, and emits `next_session_command_markdown` for the next boot.
+- Mandatory delegation: any read-heavy investigation > 3 files OR > 100 lines of raw output goes through `delegate_task` with a 2-paragraph synthesis request.
 
 ---
 

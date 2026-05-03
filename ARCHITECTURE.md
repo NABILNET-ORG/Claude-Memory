@@ -290,52 +290,54 @@ flowchart TD
   n33 --> n45
   n46["setup.ts"]
   n33 --> n46
-  n47["summarize.ts"]
+  n47["sovereign-constitution.ts"]
   n33 --> n47
-  n48["sync.ts"]
+  n48["summarize.ts"]
   n33 --> n48
-  n49["update-rule.ts"]
+  n49["sync.ts"]
   n33 --> n49
-  n50["verification.ts"]
+  n50["update-rule.ts"]
   n33 --> n50
-  n51["chunker.ts"]
-  n32 --> n51
-  n52["config.ts"]
+  n51["verification.ts"]
+  n33 --> n51
+  n52["chunker.ts"]
   n32 --> n52
-  n53["index.ts"]
+  n53["config.ts"]
   n32 --> n53
-  n54["ollama.ts"]
+  n54["index.ts"]
   n32 --> n54
-  n55["project-detect.ts"]
+  n55["ollama.ts"]
   n32 --> n55
-  n56["project.ts"]
+  n56["project-detect.ts"]
   n32 --> n56
-  n57["supabase.ts"]
+  n57["project.ts"]
   n32 --> n57
-  n58["verification-gate.ts"]
+  n58["supabase.ts"]
   n32 --> n58
-  n59["version.ts"]
+  n59["verification-gate.ts"]
   n32 --> n59
-  n60[".env.example"]
-  n0 --> n60
-  n61[".gitignore"]
+  n60["version.ts"]
+  n32 --> n60
+  n61[".env.example"]
   n0 --> n61
-  n62["ARCHITECTURE.md"]
+  n62[".gitignore"]
   n0 --> n62
-  n63["CLAUDE.md"]
+  n63["ARCHITECTURE.md"]
   n0 --> n63
-  n64["LICENSE"]
+  n64["CLAUDE.md"]
   n0 --> n64
-  n65["package-lock.json"]
+  n65["LICENSE"]
   n0 --> n65
-  n66["package.json"]
+  n66["package-lock.json"]
   n0 --> n66
-  n67["project_file_architecture.md"]
+  n67["package.json"]
   n0 --> n67
-  n68["README.md"]
+  n68["project_file_architecture.md"]
   n0 --> n68
-  n69["tsconfig.json"]
+  n69["README.md"]
   n0 --> n69
+  n70["tsconfig.json"]
+  n0 --> n70
 ```
 
 <!-- MEMORY:ARCH:END -->

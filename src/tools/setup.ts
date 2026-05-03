@@ -11,6 +11,10 @@ import { glob } from "glob";
 import { loadFrozenCache } from "./frozen-cache.js";
 import { currentProjectId, slugify } from "../project.js";
 import { GLOBAL_PROJECT_ID } from "./save.js";
+import {
+  ensureSovereignConstitution,
+  type SovereignConstitutionResult,
+} from "./sovereign-constitution.js";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const mcpEntryPoint = resolve(packageRoot, "dist", "index.js").replace(/\\/g, "/");
@@ -320,6 +324,7 @@ export async function initProject(args: {
   core3: Core3Audit;
   directives: string[];
   capabilities: Capabilities;
+  sovereign_constitution: SovereignConstitutionResult;
   recommendations?: HydrateRecommendation[];
 }> {
   const ws = resolve(args.workspace ?? process.cwd());
@@ -382,7 +387,26 @@ export async function initProject(args: {
     fix: distOk ? undefined : `Run: npm install && npm run build`,
   });
 
-  // 6. Architecture Guard — Core 3 audit (CLAUDE.md, README.md, ARCHITECTURE.md).
+  // 6. Constitutional Enforcer — bind workspace to Sovereign Memory Protocol.
+  // Runs BEFORE the Core 3 audit so a freshly-created CLAUDE.md is visible to
+  // the audit step. Failures here demote `overall` to `partial` (not
+  // `not_ready`) — the rest of the system can still function.
+  const sovereignConstitution = await ensureSovereignConstitution(ws);
+  if (sovereignConstitution.action === "error") {
+    checks.push({
+      name: "constitution:sovereign",
+      status: "warn",
+      detail: `Could not bind workspace to Sovereign Memory Protocol: ${sovereignConstitution.error}`,
+    });
+  } else {
+    checks.push({
+      name: "constitution:sovereign",
+      status: "ok",
+      detail: `${sovereignConstitution.action}: ${sovereignConstitution.path}`,
+    });
+  }
+
+  // 7. Architecture Guard — Core 3 audit (CLAUDE.md, README.md, ARCHITECTURE.md).
   // The audit is read-only; the agent reacts to `core3.required_action` and to
   // the `directives` array on the result envelope.
   const core3 = await auditCore3(ws);
@@ -469,6 +493,7 @@ export async function initProject(args: {
     core3: Core3Audit;
     directives: string[];
     capabilities: Capabilities;
+    sovereign_constitution: SovereignConstitutionResult;
     recommendations?: HydrateRecommendation[];
   } = {
     action: "init_project",
@@ -481,6 +506,7 @@ export async function initProject(args: {
     core3,
     directives,
     capabilities,
+    sovereign_constitution: sovereignConstitution,
   };
   if (recommendations.length > 0) {
     result.recommendations = recommendations;
