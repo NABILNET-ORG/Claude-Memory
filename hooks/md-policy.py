@@ -3,7 +3,7 @@
 Zero-Local-MD policy + Guardian hook (PreToolUse for Write|Edit|Bash).
 
 Enforces four rules:
-  1. Zero-Local-MD: only CLAUDE.md / MEMORY.md / README.md allowed at project root.
+  1. Zero-Local-MD: only CLAUDE.md / README.md / ARCHITECTURE.md allowed at project root.
   2. 750-line hard limit: block writes that PUSH a file past 750 lines. Files already
      over the limit are "grandfathered" — edits allowed with a warning banner.
   3. Frozen features: for files matching a configured pattern, block `Write`; Edit only.
@@ -12,7 +12,7 @@ Enforces four rules:
 
 Environment variables:
   CLAUDE_MD_POLICY_WORKSPACE             absolute path of the project root (required for MD rule)
-  CLAUDE_MD_POLICY_ALLOW_ROOT_MD         comma-separated allowlist (default: CLAUDE.md,MEMORY.md,README.md)
+  CLAUDE_MD_POLICY_ALLOW_ROOT_MD         comma-separated allowlist (default: CLAUDE.md,README.md,ARCHITECTURE.md)
   CLAUDE_MD_POLICY_TOKEN_LIMIT           soft token limit for CLAUDE.md/MEMORY.md (default 3000)
   SMART_CLAUDE_MEMORY_GATE_DIR           where the verification flag lives (default: ~/.claude-memory)
   SMART_CLAUDE_MEMORY_LINE_LIMIT         override the 750-line limit
@@ -29,7 +29,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-ALLOW_ROOT_DEFAULT = "CLAUDE.md,MEMORY.md,README.md,ARCHITECTURE.md"
+ALLOW_ROOT_DEFAULT = "CLAUDE.md,README.md,ARCHITECTURE.md"
 BYTES_PER_TOKEN = 4
 
 # Auto-generated files that bypass the 750-line hygiene check entirely.
