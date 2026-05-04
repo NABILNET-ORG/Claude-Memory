@@ -131,12 +131,25 @@ export type SovereignConstitutionResult =
   | { action: "created"; path: string; marker_present: true }
   | { action: "appended"; path: string; marker_present: true }
   | { action: "present"; path: string; marker_present: true }
+  | { action: "regenerated"; path: string; marker_present: true }
   | { action: "error"; path: string; marker_present: false; error: string };
+
+export interface EnsureSovereignConstitutionOptions {
+  /**
+   * When true, overwrite an existing CLAUDE.md with the canonical v2.1
+   * template. This is the documented Sovereign Purge regeneration path —
+   * the ONE allowed Write on a Core 3 file because we are regenerating
+   * from scratch with explicit user consent. Default: false.
+   */
+  force?: boolean;
+}
 
 export async function ensureSovereignConstitution(
   workspace: string,
+  options: EnsureSovereignConstitutionOptions = {},
 ): Promise<SovereignConstitutionResult> {
   const claudeMdPath = path.join(workspace, "CLAUDE.md");
+  const force = options.force === true;
   try {
     let existing: string | null;
     try {
@@ -154,6 +167,12 @@ export async function ensureSovereignConstitution(
       const body = `# CLAUDE.md\n\n${SOVEREIGN_CONSTITUTION_TEMPLATE}\n`;
       await fs.writeFile(claudeMdPath, body, "utf8");
       return { action: "created", path: claudeMdPath, marker_present: true };
+    }
+
+    if (force) {
+      const body = `# CLAUDE.md\n\n${SOVEREIGN_CONSTITUTION_TEMPLATE}\n`;
+      await fs.writeFile(claudeMdPath, body, "utf8");
+      return { action: "regenerated", path: claudeMdPath, marker_present: true };
     }
 
     if (existing.includes("Sovereign Memory Protocol")) {

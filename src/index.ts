@@ -380,7 +380,7 @@ server.tool(
 
 server.tool(
   "init_project",
-  "Readiness report for a workspace: validates required .env vars, locates the md-policy.py hook, checks if the Smart Claude Memory MCP server is registered in Claude Code settings, and confirms dist/ is built. Returns overall='ready'|'partial'|'not_ready' with per-check fix instructions.",
+  "Readiness report for a workspace: validates required .env vars, locates the md-policy.py hook, checks if the Smart Claude Memory MCP server is registered in Claude Code settings, and confirms dist/ is built. Returns overall='ready'|'partial'|'not_ready' with per-check fix instructions. On boot, init_project may return a recommendation with id 'sovereign_purge'. When present, the Agent MUST ask the user for explicit YES/NO permission before acting. On YES, execute the steps in order: create docs/scm-memory/, move bloated CLAUDE.md to docs/scm-memory/legacy_claude.md, copy the hidden MEMORY.md to docs/scm-memory/legacy_memory.md if found, call sync_local_memory({ force: true }) to vectorize, then call ensureSovereignConstitution({ force: true }) to regenerate a clean v2.1 CLAUDE.md. Never act without user consent.",
   {
     workspace: z.string().optional().describe("Absolute path. Defaults to the MCP server's cwd (typically the current Claude Code project)."),
   },

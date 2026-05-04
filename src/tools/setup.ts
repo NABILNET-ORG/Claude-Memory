@@ -15,6 +15,11 @@ import {
   ensureSovereignConstitution,
   type SovereignConstitutionResult,
 } from "./sovereign-constitution.js";
+import {
+  auditBloat,
+  type BloatAudit,
+  type SovereignPurgeRecommendation,
+} from "./bloat-audit.js";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const mcpEntryPoint = resolve(packageRoot, "dist", "index.js").replace(/\\/g, "/");
@@ -325,7 +330,8 @@ export async function initProject(args: {
   directives: string[];
   capabilities: Capabilities;
   sovereign_constitution: SovereignConstitutionResult;
-  recommendations?: HydrateRecommendation[];
+  bloat_audit: BloatAudit;
+  recommendations?: Array<HydrateRecommendation | SovereignPurgeRecommendation>;
 }> {
   const ws = resolve(args.workspace ?? process.cwd());
   const checks: Check[] = [];
@@ -455,11 +461,30 @@ export async function initProject(args: {
   // v1.1.3: smart-scout for un-hydrated policy rule files. Best-effort —
   // any failure inside the detector is swallowed and we simply omit the
   // `recommendations` key (init_project's primary job is unaffected).
-  let recommendations: HydrateRecommendation[] = [];
+  let recommendations: Array<HydrateRecommendation | SovereignPurgeRecommendation> = [];
   try {
     recommendations = await detectHydrateRecommendations(ws);
   } catch {
     recommendations = [];
+  }
+
+  // Sovereign Purge auto-hygiene — token-count audit on CLAUDE.md and the
+  // hidden Claude project-memory file. Best-effort: a failure here never
+  // breaks init_project; we just emit a zero-value bloat_audit and skip
+  // the recommendation.
+  let bloatAudit: BloatAudit = {
+    threshold: 3000,
+    claude_md: { path: null, tokens: 0, bloated: false },
+    hidden_memory: { path: null, tokens: 0, bloated: false, found: false },
+  };
+  try {
+    const audit = await auditBloat(ws);
+    bloatAudit = audit.bloat_audit;
+    if (audit.sovereign_purge_recommendation) {
+      recommendations.push(audit.sovereign_purge_recommendation);
+    }
+  } catch {
+    /* keep default bloatAudit */
   }
 
   // Top-level imperatives the agent MUST act on before doing anything else.
@@ -494,7 +519,8 @@ export async function initProject(args: {
     directives: string[];
     capabilities: Capabilities;
     sovereign_constitution: SovereignConstitutionResult;
-    recommendations?: HydrateRecommendation[];
+    bloat_audit: BloatAudit;
+    recommendations?: Array<HydrateRecommendation | SovereignPurgeRecommendation>;
   } = {
     action: "init_project",
     workspace: ws,
@@ -507,6 +533,7 @@ export async function initProject(args: {
     directives,
     capabilities,
     sovereign_constitution: sovereignConstitution,
+    bloat_audit: bloatAudit,
   };
   if (recommendations.length > 0) {
     result.recommendations = recommendations;

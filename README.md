@@ -551,7 +551,7 @@ For inquiries, integrations, or sovereign-grade Claude Code tooling, visit [nabi
 
 ### 🗺️ File Architecture
 
-_Auto-synced at 2026-05-04T15:19:23.344Z for `smart-claude-memory`._
+_Auto-synced at 2026-05-04T15:46:20.400Z for `smart-claude-memory`._
 
 ```mermaid
 flowchart TD
@@ -636,74 +636,76 @@ flowchart TD
   n38 --> n39
   n40["batch-freeze-patterns.ts"]
   n38 --> n40
-  n41["conflict.ts"]
+  n41["bloat-audit.ts"]
   n38 --> n41
-  n42["frozen-cache.ts"]
+  n42["conflict.ts"]
   n38 --> n42
-  n43["health.ts"]
+  n43["frozen-cache.ts"]
   n38 --> n43
-  n44["hygiene.ts"]
+  n44["health.ts"]
   n38 --> n44
-  n45["image.ts"]
+  n45["hygiene.ts"]
   n38 --> n45
-  n46["orchestrator.ts"]
+  n46["image.ts"]
   n38 --> n46
-  n47["policy.ts"]
+  n47["orchestrator.ts"]
   n38 --> n47
-  n48["refactor.ts"]
+  n48["policy.ts"]
   n38 --> n48
-  n49["save.ts"]
+  n49["refactor.ts"]
   n38 --> n49
-  n50["search.ts"]
+  n50["save.ts"]
   n38 --> n50
-  n51["setup.ts"]
+  n51["search.ts"]
   n38 --> n51
-  n52["sovereign-constitution.ts"]
+  n52["setup.ts"]
   n38 --> n52
-  n53["summarize.ts"]
+  n53["sovereign-constitution.ts"]
   n38 --> n53
-  n54["sync.ts"]
+  n54["summarize.ts"]
   n38 --> n54
-  n55["update-rule.ts"]
+  n55["sync.ts"]
   n38 --> n55
-  n56["verification.ts"]
+  n56["update-rule.ts"]
   n38 --> n56
-  n57["chunker.ts"]
-  n37 --> n57
-  n58["config.ts"]
+  n57["verification.ts"]
+  n38 --> n57
+  n58["chunker.ts"]
   n37 --> n58
-  n59["index.ts"]
+  n59["config.ts"]
   n37 --> n59
-  n60["ollama.ts"]
+  n60["index.ts"]
   n37 --> n60
-  n61["project-detect.ts"]
+  n61["ollama.ts"]
   n37 --> n61
-  n62["project.ts"]
+  n62["project-detect.ts"]
   n37 --> n62
-  n63["supabase.ts"]
+  n63["project.ts"]
   n37 --> n63
-  n64["verification-gate.ts"]
+  n64["supabase.ts"]
   n37 --> n64
-  n65["version.ts"]
+  n65["verification-gate.ts"]
   n37 --> n65
-  n66[".env.example"]
-  n0 --> n66
-  n67[".gitignore"]
+  n66["version.ts"]
+  n37 --> n66
+  n67[".env.example"]
   n0 --> n67
-  n68["ARCHITECTURE.md"]
+  n68[".gitignore"]
   n0 --> n68
-  n69["CLAUDE.md"]
+  n69["ARCHITECTURE.md"]
   n0 --> n69
-  n70["LICENSE"]
+  n70["CLAUDE.md"]
   n0 --> n70
-  n71["package-lock.json"]
+  n71["LICENSE"]
   n0 --> n71
-  n72["package.json"]
+  n72["package-lock.json"]
   n0 --> n72
-  n73["project_file_architecture.md"]
+  n73["package.json"]
   n0 --> n73
-  n74["README.md"]
+  n74["project_file_architecture.md"]
   n0 --> n74
-  n75["tsconfig.json"]
+  n75["README.md"]
   n0 --> n75
+  n76["tsconfig.json"]
+  n0 --> n76
 ```

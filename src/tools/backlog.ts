@@ -13,6 +13,7 @@ import {
 } from "../supabase.js";
 import { currentProjectId, slugify, displayProjectName } from "../project.js";
 import { basename } from "node:path";
+import { auditBloat } from "./bloat-audit.js";
 
 export type BacklogAction =
   | { action: "add"; title: string; priority?: number; notes?: string; project_id?: string }
@@ -425,7 +426,27 @@ export async function manageBacklog(args: BacklogAction) {
       // copy through any terminal. Triple-backticks inside the JSON string
       // are emitted as-is; the agent's renderer interprets them when posted.
       const nextN = await nextSessionNumber(process.cwd());
-      const nextSessionCommandMarkdown = [
+
+      // Sovereign Purge audit — surface the recommendation BEFORE the
+      // copy-paste block so the next agent boot sees the warning first.
+      let bloatAuditResult: Awaited<ReturnType<typeof auditBloat>> = {
+        bloat_audit: {
+          threshold: 3000,
+          claude_md: { path: null, tokens: 0, bloated: false },
+          hidden_memory: { path: null, tokens: 0, bloated: false, found: false },
+        },
+        sovereign_purge_recommendation: null,
+      };
+      try {
+        bloatAuditResult = await auditBloat(process.cwd());
+      } catch {
+        /* keep defaults */
+      }
+      const purgeWarning = bloatAuditResult.sovereign_purge_recommendation
+        ? "> ⚠️ Sovereign Purge recommended at next boot — see init_project response.\n\n"
+        : "";
+
+      const nextSessionCommandMarkdown = purgeWarning + [
         "## 🚀 NEXT SESSION START COMMAND (Copy-Paste)",
         "",
         "```text",
@@ -470,6 +491,8 @@ export async function manageBacklog(args: BacklogAction) {
         readme_sync: readmeSync,
         architecture_sync: architectureSync,
         memory_summary: memorySummary,
+        bloat_audit: bloatAuditResult.bloat_audit,
+        sovereign_purge_recommendation: bloatAuditResult.sovereign_purge_recommendation,
       };
     }
   }
