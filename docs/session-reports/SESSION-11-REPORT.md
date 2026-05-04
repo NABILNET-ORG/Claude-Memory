@@ -141,3 +141,43 @@ Promoted Rule 10's mandatory global_rationale enforcement to a universal archite
 - **3 GLOBAL PATTERNs** (`PATTERN-DECISION-ID-FORMAT`, `PATTERN-MCP-RESTART-AFTER-BUILD`, `PATTERN-SOVEREIGN-VETTING-GATE`).
 - **6 commits** in the Session 11 timeline: `a7eb07d` (v2.1 hardening), `0cf9d8b` (initial wrap), `0ef5998` (artefact-sync cleanup), `5def0a3` (Living Docs Sync mandate), `e20309d` (emitter alignment), and the final wrap commit appended for this continuation addendum.
 - **Step 0 verified live** in this final wrap: `readme_sync.updated === true && architecture_sync.updated === true` — the rule it codifies is now self-enforcing for all future wraps.
+
+---
+
+## Continuation 2 — Strategic Context Policy + Doc Sync (post `4ea3474`)
+
+Session 11 reopened on 2026-05-04 (UTC) for one final mission before the Session 12 plan: codify the **Orchestrator-Worker Separation** as named DNA and bring Core 3 docs back in sync with the actual code surface. Wrap committed in `648902e`, pushed to `origin/main`.
+
+### D7 — Strategic Context Policy in the Sovereign DNA (commits `648902e`)
+
+Four mandatory rules added to `### SCM Tool Conventions` in both [src/tools/sovereign-constitution.ts](src/tools/sovereign-constitution.ts) (canonical template inherited by every sovereign-bound repo via `ensureSovereignConstitution`) and [CLAUDE.md](CLAUDE.md) (local mirror):
+
+1. **Context Hygiene First** — Orchestrator MUST NOT read >100-line files or run multi-file research / complex builds in the main session; reads of that size go through `delegate_task` and return only a 2-paragraph synthesis. Reading ≤100 lines purely to drive a surgical `Edit` is the only exception.
+2. **Mandatory Delegation** — any task touching >3 files OR producing >100 lines of raw output (Grep / Read / build logs / test runs) MUST be delegated. No soft path.
+3. **Synthesis Only** — 2-paragraph return contract; compiler errors summarized in ≤1 sentence each (error code + symbol).
+4. **Orchestrator Mode** — when env var `SMART_CLAUDE_MEMORY_ORCHESTRATOR_MODE` is set, all direct `Write`/`Edit`/`Bash` calls in the main session are hard-blocked by `hooks/md-policy.py` (PreToolUse hook). This is the kill-switch / enforcement teeth for the other three rules.
+
+The policy was previously implicit — fragments lived under "Hard Rules", "Conventions → Delegation pattern", and one bullet under "SCM Tool Conventions". Implicit policy is unenforceable policy. Codifying it as a named subsection with four numbered rules makes the contract atomic.
+
+Saved as DECISION `SCM-S11-D7` (project-local id `10173`) and promoted to GLOBAL (id `10379`) with sovereign rationale tying it to the universal failure mode of any delegation-capable agent harness — main-context pollution by raw worker output. Surfaces in dual-scope search across every future SCM project.
+
+### Doc-vs-code reality sync — README.md (5 surgical edits)
+
+A read-only audit (delegated to an Explore subagent — context-hygiene rule applied to the audit itself) measured drift between [README.md](README.md) and the source tree. Five surgical `Edit` calls applied:
+
+- **Tool count claim** — "thirteen tools" → **"twenty-two tools"**. Verified via `grep -nE '^\s*server\.tool\(' src/index.ts` returning 22 lines.
+- **Toolbox table** — added the 8 missing rows (`list_frozen`, `freeze_file`, `unfreeze_file`, `sweep_legacy_backups`, `refactor_guard`, `analyze_regression`, `delegate_task`, `sync_artefacts`).
+- **Schema-apply migrations** — extended from `001..003` to **`001..009`** (covers `004_backlog_frozen`, `005_archive_backlog`, `006_security_hardening`, `007_metadata_typed_retrieval`, `008_global_scope`, `009_fix_rpc_dual_scope`).
+- **Project layout tree** — refreshed to show all 9 root `src/` files, all 18 `src/tools/` files, and all 11 SQL migrations + 9 helper scripts (was showing only 6 + 3 + 3 + 5).
+- **Database schema RPC signature** — updated from the legacy 4-arg form to the current 6-arg dual-scope form: `match_memory_chunks(query_embedding, p_project_id, match_count, min_similarity, p_metadata_filter, p_include_global)` (introduced in 008, planner-fixed in 009 via the IN-form `WHERE` clause).
+
+ARCHITECTURE.md §1–4 and §6 audited and verified clean (no edits required). §5 (the marker-bounded auto-block) refreshed by `sync_artefacts` after each surgical pass.
+
+### Tally — Continuation 2
+
+- **1 DECISION** added: `SCM-S11-D7` (local + GLOBAL).
+- **2 commits** appended to Session 11's timeline: `648902e` (Strategic Context Policy + doc sync), then this final wrap-up commit.
+- **0 hurdles** — the Orchestrator-Worker pattern as practiced this round (audit subagent kept source tree out of main context; `ctx_batch_execute` confirmed authoritative lists; surgical Edits only on Core 3) is itself the proof-of-concept for D7.
+- **Final tally for Session 11** (across all rounds): **7 DECISIONs** (`SCM-S11-D1`…`SCM-S11-D7`), **3 GLOBAL PATTERNs**, **1 GLOBAL DECISION** (`SCM-S11-D7`), **8 commits**.
+
+Session 11 now truly closes. Session 12 boots with `init_project()` + `search_memory({ query: "Active Backlog" })` per the resume prompt below.
