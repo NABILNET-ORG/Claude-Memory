@@ -69,6 +69,22 @@ The agent is not a passive storage handler — it actively scouts for global can
 
 The agent never writes to GLOBAL silently — promotion always waits on user confirmation.
 
+### Auto-Hygiene (Sovereign Purge)
+
+\`init_project\` performs a token-count audit on \`CLAUDE.md\` and the hidden Claude project-memory file at \`~/.claude/projects/<encoded>/memory/MEMORY.md\`. When either exceeds 3000 tokens, the response includes a \`recommendations\` entry with \`id: "sovereign_purge"\`. The Agent MUST:
+
+1. Surface the recommendation to the user and ask for explicit YES/NO permission.
+2. On YES, execute the documented steps in order: create \`docs/scm-memory/\`, archive the bloated files into it, vectorize them via \`sync_local_memory({ force: true })\`, and regenerate a clean v2.1 \`CLAUDE.md\` via \`ensureSovereignConstitution({ force: true })\`.
+3. On NO, take no action — the recommendation resurfaces next boot.
+
+Never purge without user consent. Never delete the legacy files — archive them under \`docs/scm-memory/\` so the Supabase vectors retain a recoverable on-disk source.
+
+### Active Retriever Protocol
+
+Before any non-trivial edit (multi-file refactor, new feature, architectural change, or any Edit that touches more than ~30 lines of a single file), the Agent MUST first call \`search_memory\` with a query summarizing the change AND a relevant \`metadata_filter\` (\`{ type: 'PATTERN' }\` for conventions, \`{ type: 'DECISION' }\` for prior architectural choices, \`{ type: 'ERROR' }\` for known regression hot spots). This recalls older project rules and patterns that are not visible in the current diff. Skipping this step risks contradicting earlier decisions or re-introducing previously fixed regressions.
+
+For trivial edits (typo, comment, single-line config change), the protocol does not apply.
+
 ### SCM Tool Conventions
 
 - \`init_project()\` — first call of every session; verifies env, hook, MCP registration, dist, Core 3 sync, and binds this repo to the Sovereign Memory Protocol.
