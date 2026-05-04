@@ -29,7 +29,7 @@ Claude sessions load `memory.md`, `rules.md`, `cloud.md`, and a dozen other cont
 
 ## What this does
 
-`smart-claude-memory` is a **Model Context Protocol server** that replaces "read every .md at startup" with "search them on demand." It chunks your markdown notes, embeds them with a local Ollama model, stores them in Supabase (pgvector), and exposes **thirteen tools** to Claude spanning memory, vision, backlog, hygiene, and system health. The elevator pitch:
+`smart-claude-memory` is a **Model Context Protocol server** that replaces "read every .md at startup" with "search them on demand." It chunks your markdown notes, embeds them with a local Ollama model, stores them in Supabase (pgvector), and exposes **twenty-two tools** to Claude spanning memory, vision, backlog, hygiene, orchestration, and system health. The elevator pitch:
 
 | Tool | Purpose |
 |---|---|
@@ -169,6 +169,14 @@ search_memory({ query: "auth flow", project_id: "acme-api" })
 | `check_system_health` | Ops | Supabase reachability (memory_chunks count) + Ollama reachability + required-model presence (moondream, nomic-embed-text) + background keep-alive state |
 | `init_project` | Ops | Readiness report for a workspace: required env vars, md-policy.py hook, MCP registration in settings, compiled dist. Also runs a **smart-scout pass** over `.claude/rules/*.md` and emits a `recommendations.hydrate_policies` block with batch-hydration candidates when any are found (key omitted entirely otherwise). Returns `ready` / `partial` / `not_ready` with fix instructions per check. |
 | `batch_freeze_patterns` | Guardian | Bulk-hydrate the frozen-pattern cache from globs or a `## Frozen Patterns` markdown section in a rule file. Strict line-by-line extraction, atomic writes, dedup with first-writer-wins, optional `dry_run`. |
+| `list_frozen` | Guardian | List all frozen pattern entries for the current project (returns `pattern`, `source`, `added_at`). Use before touching any structural-looking file. |
+| `freeze_file` | Guardian | Add a path or pattern to the frozen-pattern cache so future `Write` (full replacement) on matching files is hard-blocked by the hook. |
+| `unfreeze_file` | Guardian | Remove a path or pattern from the frozen-pattern cache. |
+| `sweep_legacy_backups` | Ops | Move stray `backup-*` / `*.bak` artefacts into a timestamped quarantine folder. Defaults to `dry_run`; HIGH-confidence files only unless `aggressive: true`. |
+| `refactor_guard` | Guardian | Single source of compile truth — auto-detects stack and runs the native gate (`tsc --noEmit`, `flutter analyze`, `cargo check`, …). Also exposes `rollback` for last-resort recovery. |
+| `analyze_regression` | Guardian | Diffs the current file against recent backups and surfaces the `closest_prior` snapshot to guide the minimal local fix during the self-healing loop. |
+| `delegate_task` | Orchestrator | Emit a canonical worker sub-agent prompt — the worker does the edit → `refactor_guard` gate → up to 3 self-heal attempts → returns only a 2-paragraph synthesis. Backbone of the Sovereign Orchestrator pattern. |
+| `sync_artefacts` | Orchestrator | Refresh `README.md` Recent Progress + the marker-bounded Mermaid block in `ARCHITECTURE.md` + `project_file_architecture.md` after a worker reports success. Doc-only subset of `manage_backlog({ action: "session_end" })`. |
 
 **Companion hook:** [hooks/md-policy.py](hooks/md-policy.py) enforces Zero-Local-MD allowlist, 750-line ceiling, frozen-feature patterns, and the Manual Test Gate from the Claude Code `PreToolUse` layer. Without it the Guardian tools are advisory; with it they are binding.
 
@@ -313,12 +321,20 @@ CHUNK_OVERLAP=100
 Migrations are cumulative and idempotent. Run them in order:
 
 ```bash
-npm run schema                              # 001_schema.sql — base table + HNSW index + RPCs
-npm run schema -- 002_multi_project.sql     # adds project_id + per-project isolation
-npm run schema -- 003_file_hash.sql         # adds file_hash for incremental sync
+npm run schema                                       # 001_schema.sql — base table + HNSW index + base RPCs
+npm run schema -- 002_multi_project.sql              # project_id column + per-project isolation
+npm run schema -- 003_file_hash.sql                  # file_hash column for incremental sync
+npm run schema -- 004_backlog_frozen.sql             # cloud_backlog + frozen_patterns tables
+npm run schema -- 005_archive_backlog.sql            # archive_backlog history table
+npm run schema -- 006_security_hardening.sql         # RLS deny-all, service-role-only access
+npm run schema -- 007_metadata_typed_retrieval.sql   # GIN(metadata jsonb_path_ops) + typed-filter match RPC
+npm run schema -- 008_global_scope.sql               # 'GLOBAL' project_id + 6-arg dual-scope match RPC
+npm run schema -- 009_fix_rpc_dual_scope.sql         # IN-form WHERE planner fix for dual-scope (v2.0.0-rc1 hotfix)
 ```
 
-Or paste the SQL manually in [Supabase SQL Editor](https://supabase.com/dashboard): [scripts/001_schema.sql](scripts/001_schema.sql) → [scripts/002_multi_project.sql](scripts/002_multi_project.sql) → [scripts/003_file_hash.sql](scripts/003_file_hash.sql).
+Smoke / verify scripts (`006_smoke.sql`, `006_verify.sql`, `verify-007.ts`, `smoke-008.ts`, `verify-008.ts`) live alongside the migrations and are optional — run them only when validating an upgrade end-to-end.
+
+Or paste the SQL manually in [Supabase SQL Editor](https://supabase.com/dashboard): [scripts/001_schema.sql](scripts/001_schema.sql) → [scripts/002_multi_project.sql](scripts/002_multi_project.sql) → [scripts/003_file_hash.sql](scripts/003_file_hash.sql) → [scripts/004_backlog_frozen.sql](scripts/004_backlog_frozen.sql) → [scripts/005_archive_backlog.sql](scripts/005_archive_backlog.sql) → [scripts/006_security_hardening.sql](scripts/006_security_hardening.sql) → [scripts/007_metadata_typed_retrieval.sql](scripts/007_metadata_typed_retrieval.sql) → [scripts/008_global_scope.sql](scripts/008_global_scope.sql) → [scripts/009_fix_rpc_dual_scope.sql](scripts/009_fix_rpc_dual_scope.sql).
 
 ### 4. Build
 
@@ -427,7 +443,7 @@ create index on memory_chunks (project_id);
 create index on memory_chunks (project_id, file_origin);   -- powers the hash-gate lookup
 ```
 
-The RPC `match_memory_chunks(query_embedding, p_project_id, match_count, min_similarity)` enforces the isolation filter in SQL. All chunks from the same file share one `file_hash`, so the incremental-sync skip check is a single `SELECT file_origin, file_hash WHERE project_id = ?`. Full schema + RPC definitions in [scripts/001_schema.sql](scripts/001_schema.sql), [scripts/002_multi_project.sql](scripts/002_multi_project.sql), and [scripts/003_file_hash.sql](scripts/003_file_hash.sql).
+The current 6-arg RPC `match_memory_chunks(query_embedding, p_project_id, match_count, min_similarity, p_metadata_filter, p_include_global)` (introduced by migration 008 and patched in 009 to use the planner-friendly IN-form `WHERE m.project_id IN (p_project_id, CASE WHEN p_include_global THEN 'GLOBAL' END)`) enforces tenancy + the typed-metadata filter + the optional `'GLOBAL'` fan-out, all in SQL — before pgvector ranks the candidate set. The legacy 4-arg form from migration 001 is superseded but left intact in the file for historical reference. All chunks from the same file share one `file_hash`, so the incremental-sync skip check is a single `SELECT file_origin, file_hash WHERE project_id = ?`. Full schema + RPC definitions in [scripts/001_schema.sql](scripts/001_schema.sql), [scripts/002_multi_project.sql](scripts/002_multi_project.sql), [scripts/003_file_hash.sql](scripts/003_file_hash.sql), [scripts/007_metadata_typed_retrieval.sql](scripts/007_metadata_typed_retrieval.sql), [scripts/008_global_scope.sql](scripts/008_global_scope.sql), and [scripts/009_fix_rpc_dual_scope.sql](scripts/009_fix_rpc_dual_scope.sql).
 
 ---
 
@@ -435,26 +451,56 @@ The RPC `match_memory_chunks(query_embedding, p_project_id, match_count, min_sim
 
 ```
 src/
-├── index.ts        MCP server entry — tool registration
-├── config.ts       Env loader (absolute .env path resolution)
-├── project.ts      project_id detection + slugification
-├── ollama.ts       POST /api/embed client
-├── supabase.ts     Table + RPC wrappers
-├── chunker.ts      Markdown-aware splitter
+├── index.ts              MCP server entry — registers all 22 tools
+├── config.ts             Env loader (absolute .env path resolution)
+├── project.ts            project_id detection + slugification
+├── project-detect.ts     Multi-stack project root detection
+├── ollama.ts             POST /api/embed client
+├── supabase.ts           Table + RPC wrappers + frozen-pattern cache
+├── chunker.ts            Markdown-aware splitter
+├── verification-gate.ts  Hard-stop verification flag (PreToolUse blocker)
+├── version.ts            Version SSOT — re-exports from package.json
 └── tools/
-    ├── sync.ts     sync_local_memory handler
-    ├── search.ts   search_memory handler
-    └── update-rule.ts
+    ├── backlog.ts                manage_backlog (add / list / update / prune_done / archive_list / session_end)
+    ├── batch-freeze-patterns.ts  batch_freeze_patterns (bulk-hydrate from globs or rule file)
+    ├── conflict.ts               check_rule_conflicts
+    ├── frozen-cache.ts           Shared loader for the frozen-pattern cache (atomic writes, dedup)
+    ├── health.ts                 check_system_health (Supabase + Ollama + keep-alive + orchestrator)
+    ├── hygiene.ts                check_code_hygiene (750-line ceiling, N-split refactor plans)
+    ├── image.ts                  index_image (Moondream caption → embed → upsert)
+    ├── orchestrator.ts           delegate_task + sync_artefacts (Sovereign Orchestrator pattern)
+    ├── policy.ts                 list_frozen / freeze_file / unfreeze_file / sweep_legacy_backups
+    ├── refactor.ts               refactor_guard (compile gate) + analyze_regression (backup diff)
+    ├── save.ts                   save_memory (typed write path with Sovereign Vetting)
+    ├── search.ts                 search_memory (intent routing + dual-scope semantic)
+    ├── setup.ts                  init_project (readiness checks + smart-scout)
+    ├── sovereign-constitution.ts CLAUDE.md Sovereign-binding template + helper
+    ├── summarize.ts              summarize_memory_file
+    ├── sync.ts                   sync_local_memory (hash-gated incremental)
+    ├── update-rule.ts            update_rule (legacy positional upsert)
+    └── verification.ts           raise_verification_gate / confirm_verification
 
 scripts/
-├── 001_schema.sql
-├── 002_multi_project.sql
-├── 003_file_hash.sql
-├── apply-schema.ts
-├── backup-and-remove.ts
-├── e2e-test.ts
-├── e2e-isolation-test.ts
-└── e2e-incremental-test.ts
+├── 001_schema.sql                    base table + HNSW index + base RPCs
+├── 002_multi_project.sql             project_id + per-project isolation
+├── 003_file_hash.sql                 file_hash column for incremental sync
+├── 004_backlog_frozen.sql            cloud_backlog + frozen_patterns tables
+├── 005_archive_backlog.sql           archive_backlog history table
+├── 006_security_hardening.sql        RLS deny-all + service-role-only access
+├── 006_smoke.sql                     smoke checks for 006
+├── 006_verify.sql                    verifier for 006
+├── 007_metadata_typed_retrieval.sql  GIN(jsonb_path_ops) + typed-filter match RPC
+├── 008_global_scope.sql              'GLOBAL' project_id + 6-arg dual-scope match RPC
+├── 009_fix_rpc_dual_scope.sql        IN-form WHERE planner fix (v2.0.0-rc1 hotfix)
+├── apply-schema.ts                   `npm run schema` runner
+├── backup-and-remove.ts              archive + delete .md files in MEMORY_ROOTS
+├── e2e-test.ts                       end-to-end smoke
+├── e2e-isolation-test.ts             multi-project isolation gate
+├── e2e-incremental-test.ts           hash-gate / force / orphans
+├── purge-samia-rules.ts              one-off scrub (legacy)
+├── smoke-008.ts                      smoke for 008 dual-scope
+├── verify-007.ts                     verifier for 007 typed retrieval
+└── verify-008.ts                     verifier for 008 dual-scope
 ```
 
 ---
@@ -505,7 +551,7 @@ For inquiries, integrations, or sovereign-grade Claude Code tooling, visit [nabi
 
 ### 🗺️ File Architecture
 
-_Auto-synced at 2026-05-03T10:43:13.372Z for `smart-claude-memory`._
+_Auto-synced at 2026-05-03T12:14:58.365Z for `smart-claude-memory`._
 
 ```mermaid
 flowchart TD

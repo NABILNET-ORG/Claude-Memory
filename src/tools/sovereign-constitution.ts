@@ -78,6 +78,15 @@ The agent never writes to GLOBAL silently — promotion always waits on user con
 - \`manage_backlog({ action: "session_end" })\` — session close; flushes backlog, regenerates diagrams, runs \`sync_artefacts\`, and emits \`next_session_command_markdown\` for the next boot.
 - Mandatory delegation: any read-heavy investigation > 3 files OR > 100 lines of raw output goes through \`delegate_task\` with a 2-paragraph synthesis request.
 
+### Strategic Context Policy (Orchestrator-Worker Separation)
+
+These four rules formalize the **Orchestrator-Worker** separation that is the spine of the SCM operating model. They are NOT optional — the Orchestrator (the main session) is a strategic context only; tactical execution MUST live in isolated Background Workers.
+
+- **Context Hygiene First.** The Orchestrator MUST NOT read large files (> 100 lines) or run complex builds / multi-file research directly in the main session. Reads of that size go through \`delegate_task\` and return only a 2-paragraph synthesis. Reading ≤ 100 lines for the express purpose of a surgical \`Edit\` is the only exception.
+- **Mandatory Delegation.** Any task touching > 3 files OR producing > 100 lines of raw output (Grep / Read / build logs / test runs) MUST be delegated to a Background Worker via \`delegate_task\`. There is no soft path — flooding the main context defeats the entire architecture and burns the next session's runway.
+- **Synthesis Only.** The Orchestrator only accepts a 2-paragraph synthesis back from the Worker. Never pull raw code, full stack traces, or long logs into the main session unless the User explicitly asks for them for final verification. Workers summarize compiler errors in ≤ 1 sentence each (error code + symbol).
+- **Orchestrator Mode.** When the environment variable \`SMART_CLAUDE_MEMORY_ORCHESTRATOR_MODE\` is set, all direct \`Write\` / \`Edit\` / \`Bash\` calls are strictly forbidden in the main session — every unit of execution MUST be delegated via \`delegate_task\`. This is the hardest expression of the policy and is enforced by the \`md-policy.py\` PreToolUse hook (hard-block, not advisory).
+
 ### Session Handoff Protocol — Atomic Wrap-Up Ritual
 
 **Trigger Rules — when to wrap up.**
