@@ -2,9 +2,9 @@
 
 # Smart Claude Memory
 
-![Smart Claude Memory v2.0.0-rc1 Master Schematic](images/SCM-v2-Master-Schematic.png)
+![Smart Claude Memory v2.1.0 Master Schematic](docs/assets/schematic.png)
 
-*Master schematic — the definitive visual reference for the Smart Claude Memory v2.0.0-rc1 production baseline.*
+*Master schematic — the definitive visual reference for the Smart Claude Memory v2.1.0 production baseline.*
 
 **Hybrid cloud-local memory for Claude — semantic retrieval instead of context bloat.**
 
