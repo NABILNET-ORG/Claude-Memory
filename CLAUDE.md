@@ -53,6 +53,7 @@ Never write to GLOBAL silently — promotion always waits on user confirmation.
 
 `init_project` audits token counts on `CLAUDE.md` and the hidden `~/.claude/projects/<encoded>/memory/MEMORY.md`. When either exceeds the bloat threshold (default 10000 tokens), the response includes a `recommendations` entry with `id: "sovereign_purge"`. The Agent MUST:
 
+0. Ensure `docs/scm-memory/` is added to `.gitignore` BEFORE any archiving takes place to prevent accidental data exfiltration.
 1. Surface the recommendation and ask for explicit YES/NO consent.
 2. On YES: create `docs/scm-memory/`, archive the bloated files there, vectorize via `sync_local_memory({ force: true })`, then regenerate via `ensureSovereignConstitution({ force: true })`.
 3. On NO: take no action — the recommendation resurfaces next boot.
