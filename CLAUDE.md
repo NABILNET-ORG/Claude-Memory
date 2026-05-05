@@ -103,6 +103,7 @@ Task completion alone is NOT a trigger. When fired, execute these five steps in 
 🚀 NEXT SESSION START COMMAND (Copy-Paste)
 
 init_project()
+check_system_health()
 search_memory({ query: "Active Backlog", project_id: "[current_project_id]", k: 10 })
 # Then read docs/NEXT-SESSION-PROMPT.md for the full Session [N+1] plan.
 ```
