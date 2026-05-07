@@ -294,7 +294,7 @@ def check_md_policy(target: Path) -> dict | None:
             "decision": "block",
             "reason": (
                 f"Zero-Local-MD policy: `{target.name}` is outside the allowed root ({ws}). "
-                "Store it in cloud memory via update_rule or sync_local_memory."
+                "Store it in cloud memory via save_memory or sync_local_memory."
             ),
         }
     if target.name not in allow_root():

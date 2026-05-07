@@ -154,7 +154,7 @@ The `metadata @>` predicate is index-driven: migration `007_metadata_typed_retri
 
 ### 4.2 Write path
 
-`save_memory` is the canonical write side: it embeds `content` via Ollama, then calls the `upsert_memory_rule(p_project_id, p_file_origin, p_chunk_index, p_content, p_embedding, p_metadata)` RPC. Its tool description prompts the calling agent to set `metadata.type` on every save. The legacy `update_rule` shape continues to work for policy hydration and migrations but is no longer the canonical write path.
+`save_memory` is the canonical and only write side: it embeds `content` via Ollama, then calls the `upsert_memory_rule(p_project_id, p_file_origin, p_chunk_index, p_content, p_embedding, p_metadata)` RPC. Its tool description prompts the calling agent to set `metadata.type` on every save.
 
 ```mermaid
 flowchart LR
@@ -316,8 +316,6 @@ flowchart TD
   n42 --> n58
   n59["sync.ts"]
   n42 --> n59
-  n60["update-rule.ts"]
-  n42 --> n60
   n61["verification.ts"]
   n42 --> n61
   n62["chunker.ts"]
