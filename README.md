@@ -158,7 +158,6 @@ search_memory({ query: "auth flow", project_id: "acme-api" })
 | `sync_local_memory` | Memory | Hash-gated incremental sync of `.md` files; bulk upsert in 100-chunk batches; `force` re-embed; `auto_purge` with dry-run + verify-before-delete |
 | `search_memory` | Memory | Intent routing — `archive` > `backlog` > `semantic`. Optional `metadata_filter` (e.g. `{ "type": "DECISION" }`) narrows via the GIN index before vector similarity. **Dual-scope by default (v2.0.0-rc1):** searches across the current project AND the reserved `'GLOBAL'` vault; pass `include_global: false` to restrict to the current project. Archive tasks never leak into vector results unless requested. |
 | `save_memory` | Memory | Save a typed memory chunk — embed via Ollama, upsert with `metadata.type` from the Sovereign Taxonomy (`DECISION` / `PATTERN` / `ERROR` / `LOG`). v2 canonical write path. **v2.0.0-rc1:** set `metadata.is_global: true` to route the row to the reserved `project_id: 'GLOBAL'` vault for cross-project visibility. **Sovereign Vetting:** when `is_global: true`, you MUST also supply `metadata.global_rationale` and the memory must pass the Cross-Project Test (Rule 10). |
-| `update_rule` | Memory | Low-level positional upsert of a single rule/chunk without re-syncing files (legacy; prefer `save_memory` for new writes) |
 | `summarize_memory_file` | Memory | LLM-driven compression of `CLAUDE.md` / `MEMORY.md` toward a token target (default 3000) |
 | `manage_backlog` | Backlog | `add` / `list` / `update` / `prune_done` (archives) / `archive_list` / `session_end` with Progress Report + resume prompt |
 | `index_image` | Vision | Moondream caption → `nomic-embed-text` embed → upsert. Auto-converts WebP/GIF/BMP via ffmpeg. |
@@ -477,7 +476,6 @@ src/
     ├── sovereign-constitution.ts CLAUDE.md Sovereign-binding template + helper
     ├── summarize.ts              summarize_memory_file
     ├── sync.ts                   sync_local_memory (hash-gated incremental)
-    ├── update-rule.ts            update_rule (legacy positional upsert)
     └── verification.ts           raise_verification_gate / confirm_verification
 
 scripts/
@@ -674,8 +672,6 @@ flowchart TD
   n42 --> n58
   n59["sync.ts"]
   n42 --> n59
-  n60["update-rule.ts"]
-  n42 --> n60
   n61["verification.ts"]
   n42 --> n61
   n62["chunker.ts"]

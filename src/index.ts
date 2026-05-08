@@ -4,7 +4,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { syncLocalMemory } from "./tools/sync.js";
 import { searchMemory } from "./tools/search.js";
-import { updateRule } from "./tools/update-rule.js";
 import { saveMemory } from "./tools/save.js";
 import { manageBacklog } from "./tools/backlog.js";
 import { checkCodeHygiene } from "./tools/hygiene.js";
@@ -140,19 +139,6 @@ server.tool(
       ),
   },
   async (args) => ({ content: [{ type: "text", text: JSON.stringify(await searchMemory(args), null, 2) }] }),
-);
-
-server.tool(
-  "update_rule",
-  "Upsert a single rule/chunk into the current project's namespace.",
-  {
-    file_origin: z.string(),
-    chunk_index: z.number().int().nonnegative(),
-    content: z.string().min(1),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    project_id: projectIdSchema,
-  },
-  async (args) => ({ content: [{ type: "text", text: JSON.stringify(await updateRule(args), null, 2) }] }),
 );
 
 server.tool(
