@@ -23,6 +23,7 @@ console.log("   vectors:", vectors.length, "dim:", vectors[0].length);
 
 console.log("3. Upserting 3 test chunks...");
 const { count: inserted } = await upsertChunks(
+  "__e2e_test__",
   samples.map((content, i) => ({
     content,
     file_origin: "__e2e_test__.md",
@@ -35,7 +36,7 @@ console.log("   upserted:", inserted);
 
 console.log("4. Semantic search for 'what language style does the user want?'...");
 const [q] = await embed(["what language style does the user want?"]);
-const results = await searchChunks(q, 3);
+const results = await searchChunks("__e2e_test__", q, 3);
 for (const r of results) {
   console.log(`   [sim=${r.similarity.toFixed(3)}] ${r.content.slice(0, 70)}...`);
 }

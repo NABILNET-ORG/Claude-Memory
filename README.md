@@ -549,7 +549,7 @@ For inquiries, integrations, or sovereign-grade Claude Code tooling, visit [nabi
 
 ### 🗺️ File Architecture
 
-_Auto-synced at 2026-05-07T09:46:30.036Z for `smart-claude-memory`._
+_Auto-synced at 2026-05-08T07:46:49.382Z for `smart-claude-memory`._
 
 ```mermaid
 flowchart TD
@@ -578,120 +578,122 @@ flowchart TD
   n8 --> n11
   n12["SESSION-13-REPORT.md"]
   n8 --> n12
-  n13["IDE-INTEGRATION.md"]
-  n2 --> n13
-  n14["NEXT-SESSION-PROMPT.md"]
+  n13["SESSION-14-REPORT.md"]
+  n8 --> n13
+  n14["IDE-INTEGRATION.md"]
   n2 --> n14
-  n15["hooks/"]
-  n0 --> n15
-  n16["md-policy.py"]
-  n15 --> n16
-  n17["README.md"]
-  n15 --> n17
-  n18["images/"]
-  n0 --> n18
-  n19["GPT SMC v2.0-rc1.png"]
-  n18 --> n19
-  n20["scripts/"]
-  n0 --> n20
-  n21["001_schema.sql"]
-  n20 --> n21
-  n22["002_multi_project.sql"]
-  n20 --> n22
-  n23["003_file_hash.sql"]
-  n20 --> n23
-  n24["004_backlog_frozen.sql"]
-  n20 --> n24
-  n25["005_archive_backlog.sql"]
-  n20 --> n25
-  n26["006_security_hardening.sql"]
-  n20 --> n26
-  n27["006_smoke.sql"]
-  n20 --> n27
-  n28["006_verify.sql"]
-  n20 --> n28
-  n29["007_metadata_typed_retrieval.sql"]
-  n20 --> n29
-  n30["008_global_scope.sql"]
-  n20 --> n30
-  n31["009_fix_rpc_dual_scope.sql"]
-  n20 --> n31
-  n32["apply-schema.ts"]
-  n20 --> n32
-  n33["backup-and-remove.ts"]
-  n20 --> n33
-  n34["e2e-incremental-test.ts"]
-  n20 --> n34
-  n35["e2e-isolation-test.ts"]
-  n20 --> n35
-  n36["e2e-test.ts"]
-  n20 --> n36
-  n37["purge-samia-rules.ts"]
-  n20 --> n37
-  n38["smoke-008.ts"]
-  n20 --> n38
-  n39["verify-007.ts"]
-  n20 --> n39
-  n40["verify-008.ts"]
-  n20 --> n40
-  n41["src/"]
-  n0 --> n41
-  n42["tools/"]
-  n41 --> n42
-  n43["backlog.ts"]
+  n15["NEXT-SESSION-PROMPT.md"]
+  n2 --> n15
+  n16["hooks/"]
+  n0 --> n16
+  n17["md-policy.py"]
+  n16 --> n17
+  n18["README.md"]
+  n16 --> n18
+  n19["images/"]
+  n0 --> n19
+  n20["GPT SMC v2.0-rc1.png"]
+  n19 --> n20
+  n21["scripts/"]
+  n0 --> n21
+  n22["001_schema.sql"]
+  n21 --> n22
+  n23["002_multi_project.sql"]
+  n21 --> n23
+  n24["003_file_hash.sql"]
+  n21 --> n24
+  n25["004_backlog_frozen.sql"]
+  n21 --> n25
+  n26["005_archive_backlog.sql"]
+  n21 --> n26
+  n27["006_security_hardening.sql"]
+  n21 --> n27
+  n28["006_smoke.sql"]
+  n21 --> n28
+  n29["006_verify.sql"]
+  n21 --> n29
+  n30["007_metadata_typed_retrieval.sql"]
+  n21 --> n30
+  n31["008_global_scope.sql"]
+  n21 --> n31
+  n32["009_fix_rpc_dual_scope.sql"]
+  n21 --> n32
+  n33["apply-schema.ts"]
+  n21 --> n33
+  n34["backup-and-remove.ts"]
+  n21 --> n34
+  n35["e2e-incremental-test.ts"]
+  n21 --> n35
+  n36["e2e-isolation-test.ts"]
+  n21 --> n36
+  n37["e2e-test.ts"]
+  n21 --> n37
+  n38["purge-samia-rules.ts"]
+  n21 --> n38
+  n39["smoke-008.ts"]
+  n21 --> n39
+  n40["verify-007.ts"]
+  n21 --> n40
+  n41["verify-008.ts"]
+  n21 --> n41
+  n42["src/"]
+  n0 --> n42
+  n43["tools/"]
   n42 --> n43
-  n44["batch-freeze-patterns.ts"]
-  n42 --> n44
-  n45["bloat-audit.ts"]
-  n42 --> n45
-  n46["conflict.ts"]
-  n42 --> n46
-  n47["frozen-cache.ts"]
-  n42 --> n47
-  n48["health.ts"]
-  n42 --> n48
-  n49["hygiene.ts"]
-  n42 --> n49
-  n50["image.ts"]
-  n42 --> n50
-  n51["orchestrator.ts"]
-  n42 --> n51
-  n52["policy.ts"]
-  n42 --> n52
-  n53["refactor.ts"]
-  n42 --> n53
-  n54["save.ts"]
-  n42 --> n54
-  n55["search.ts"]
-  n42 --> n55
-  n56["setup.ts"]
-  n42 --> n56
-  n57["sovereign-constitution.ts"]
-  n42 --> n57
-  n58["summarize.ts"]
-  n42 --> n58
-  n59["sync.ts"]
-  n42 --> n59
+  n44["backlog.ts"]
+  n43 --> n44
+  n45["batch-freeze-patterns.ts"]
+  n43 --> n45
+  n46["bloat-audit.ts"]
+  n43 --> n46
+  n47["conflict.ts"]
+  n43 --> n47
+  n48["frozen-cache.ts"]
+  n43 --> n48
+  n49["health.ts"]
+  n43 --> n49
+  n50["hygiene.ts"]
+  n43 --> n50
+  n51["image.ts"]
+  n43 --> n51
+  n52["orchestrator.ts"]
+  n43 --> n52
+  n53["policy.ts"]
+  n43 --> n53
+  n54["refactor.ts"]
+  n43 --> n54
+  n55["save.ts"]
+  n43 --> n55
+  n56["search.ts"]
+  n43 --> n56
+  n57["setup.ts"]
+  n43 --> n57
+  n58["sovereign-constitution.ts"]
+  n43 --> n58
+  n59["summarize.ts"]
+  n43 --> n59
+  n60["sync.ts"]
+  n43 --> n60
   n61["verification.ts"]
-  n42 --> n61
+  n43 --> n61
   n62["chunker.ts"]
-  n41 --> n62
+  n42 --> n62
   n63["config.ts"]
-  n41 --> n63
+  n42 --> n63
   n64["index.ts"]
-  n41 --> n64
+  n42 --> n64
   n65["ollama.ts"]
-  n41 --> n65
+  n42 --> n65
   n66["project-detect.ts"]
-  n41 --> n66
+  n42 --> n66
   n67["project.ts"]
-  n41 --> n67
+  n42 --> n67
   n68["supabase.ts"]
-  n41 --> n68
+  n42 --> n68
   n69["verification-gate.ts"]
-  n41 --> n69
+  n42 --> n69
   n70["version.ts"]
-  n41 --> n70
+  n42 --> n70
   n71[".env.example"]
   n0 --> n71
   n72[".gitignore"]
