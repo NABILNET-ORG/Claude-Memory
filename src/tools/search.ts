@@ -1,5 +1,6 @@
 import { embed } from "../ollama.js";
 import {
+  supabase,
   searchChunks,
   listBacklog,
   listArchive,
@@ -7,6 +8,16 @@ import {
   type ArchiveRow,
 } from "../supabase.js";
 import { currentProjectId } from "../project.js";
+
+/** Pure-number queries (e.g. "11468") -> direct SQL fetch by id. Bypasses
+ *  vector ranking, which can fail to surface a known row when its embedding
+ *  is squeezed out of top-K by stronger lexical neighbors in a 7k+ row set.
+ *  Dual-scope is enforced at the app layer: project_id IN (current, GLOBAL?). */
+const ID_PATTERN = /^\s*(\d{1,12})\s*$/;
+
+/** Sovereign Decision-ID handles like SCM-S15-D1 or SCM-S15-D1-GLOBAL.
+ *  Routed through metadata.context_id @> match (no vector embedding). */
+const CONTEXT_ID_PATTERN = /^\s*(SCM-S\d+-D\d+(?:-GLOBAL)?)\s*$/i;
 
 /** Narrow patterns for queries that unambiguously ask for the ARCHIVE. */
 const ARCHIVE_PATTERNS: RegExp[] = [
@@ -50,9 +61,98 @@ export async function searchMemory(args: {
   // 'GLOBAL' bucket. Pass include_global:false to restrict to project_id only.
   const includeGlobal = args.include_global ?? true;
 
-  // Precedence: archive > backlog > semantic. Archive beats backlog because
-  // 'archive' is the more specific signal — without it we'd route generic
-  // queries containing 'archive' into the semantic path by mistake.
+  // Precedence: id > context_id > archive > backlog > semantic.
+  //
+  // ID fallthrough — a query that is JUST a number is almost certainly a
+  // direct lookup ("show me row 11468"), not a semantic ask. Vector ranking
+  // on numeric tokens is meaningless and can hide rows whose neighbors won
+  // the cosine race. Direct SQL fetch is exact and respects dual-scope
+  // (current project_id OR 'GLOBAL' when include_global is true).
+  const idMatch = args.query.match(ID_PATTERN);
+  if (idMatch) {
+    const id = Number(idMatch[1]);
+    const projectFilter = includeGlobal
+      ? `project_id.eq.${projectId},project_id.eq.GLOBAL`
+      : `project_id.eq.${projectId}`;
+    const { data, error } = await supabase
+      .from("memory_chunks")
+      .select("id, content, file_origin, chunk_index, metadata, project_id")
+      .eq("id", id)
+      .or(projectFilter)
+      .limit(1);
+    if (error) {
+      throw new Error(`Supabase id-lookup failed: ${error.message}`);
+    }
+    const rows = (data ?? []) as Array<{
+      id: number;
+      content: string;
+      file_origin: string;
+      chunk_index: number;
+      metadata: Record<string, unknown>;
+      project_id: string;
+    }>;
+    return {
+      project_id: projectId,
+      query: args.query,
+      mode: "id" as const,
+      include_global: includeGlobal,
+      count: rows.length,
+      results: rows.map((r) => ({
+        id: r.id,
+        content: r.content,
+        file_origin: r.file_origin,
+        chunk_index: r.chunk_index,
+        metadata: r.metadata,
+        similarity: 1.0,
+        project_id: r.project_id,
+      })),
+    };
+  }
+
+  // Context-ID fallthrough — Sovereign Decision IDs like "SCM-S15-D1" or
+  // "SCM-S15-D1-GLOBAL". Use metadata.context_id @> containment (uses GIN)
+  // so the lookup is exact, dual-scope-aware, and never embedding-bottlenecked.
+  const ctxMatch = args.query.match(CONTEXT_ID_PATTERN);
+  if (ctxMatch) {
+    const contextId = ctxMatch[1];
+    const projectFilter = includeGlobal
+      ? `project_id.eq.${projectId},project_id.eq.GLOBAL`
+      : `project_id.eq.${projectId}`;
+    const { data, error } = await supabase
+      .from("memory_chunks")
+      .select("id, content, file_origin, chunk_index, metadata, project_id")
+      .contains("metadata", { context_id: contextId })
+      .or(projectFilter)
+      .limit(Math.max(limit, 5));
+    if (error) {
+      throw new Error(`Supabase context_id-lookup failed: ${error.message}`);
+    }
+    const rows = (data ?? []) as Array<{
+      id: number;
+      content: string;
+      file_origin: string;
+      chunk_index: number;
+      metadata: Record<string, unknown>;
+      project_id: string;
+    }>;
+    return {
+      project_id: projectId,
+      query: args.query,
+      mode: "context_id" as const,
+      include_global: includeGlobal,
+      count: rows.length,
+      results: rows.map((r) => ({
+        id: r.id,
+        content: r.content,
+        file_origin: r.file_origin,
+        chunk_index: r.chunk_index,
+        metadata: r.metadata,
+        similarity: 1.0,
+        project_id: r.project_id,
+      })),
+    };
+  }
+
   if (matches(ARCHIVE_PATTERNS, args.query)) {
     const rows: ArchiveRow[] = await listArchive(projectId, { limit: Math.max(limit, 20) });
     const summary =
