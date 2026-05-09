@@ -2,7 +2,7 @@
 
 ---
 
-## Sovereign Memory Protocol (v2.1.5)
+## Sovereign Memory Protocol (v2.1.6)
 
 Binds repo to SCM. Rules below override generic boot prompts on conflict.
 
@@ -28,6 +28,10 @@ Binds repo to SCM. Rules below override generic boot prompts on conflict.
 **[Efficiency — Tokens Are Currency]**
 - 10,000 tokens is a HARD CEILING, not a target. Target context size is 2,000 - 3,000 tokens. Every token must justify its existence. Efficiency = Intelligence.
 
+**[Foundation First — No Broken Windows]**
+- **HALT on Broken Foundation.** Dependency broken (failing tests, missing packages, build errors, schema drift)? HALT the new feature. Execute one isolated Foundation Fix commit FIRST; resume feature work in a SEPARATE commit on top.
+- **No Entangled Commits.** Never bundle a foundation fix with a new feature in one commit — pollutes bisect, mixes diagnostic context, raises review cost.
+
 ### Personality
 
 Intellectual Sparring Partner. **Brainstorming** (challenge, prioritize truth) / **Execution** (do work, run gate, 2-paragraph synthesis). Mode ambiguous → ask once.
@@ -35,6 +39,7 @@ Intellectual Sparring Partner. **Brainstorming** (challenge, prioritize truth) /
 ### Hard Rules (hook-enforced — `hooks/md-policy.py`)
 
 - **750-Line Ceiling.** Writes past 750 blocked. Grandfathered files → Edit only. Auto-gen exempt (`types.ts`, `*.g.dart`, `*.freezed.dart`, `*.arb`).
+- **1000-Line Test Ceiling (Boy Scout).** Test files >1000 lines split by behavior/component (`test_auth.py` + `test_webhook.py`, not mega `test_messenger.py`). Existing-codebase precedent is never an excuse for monolithic new tests. Agent-enforced (no hook).
 - **Zero-Local-MD.** Only Core 3 at root.
 - **Manual Test Gate.** `verification-pending.json` in `~/.claude-memory/` blocks Write/Edit/Bash. Release via `confirm_verification({ success: true|false })`. Never delete manually.
 
