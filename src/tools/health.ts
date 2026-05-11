@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { config } from "../config.js";
 import { supabase, getKeepAliveStatus, FROZEN_CACHE_PATH } from "../supabase.js";
 import { getCompactorStatus } from "../trajectory/daemon.js";
+import { getSleepLearnerStatus } from "../sleep/daemon.js";
 import { VERSION } from "../version.js";
 
 // Sovereign Orchestrator defaults (mirrored from delegateTask/buildWorkerPrompt).
@@ -40,6 +41,7 @@ type HealthReport = {
   };
   keep_alive: ReturnType<typeof getKeepAliveStatus>;
   trajectory_compactor: ReturnType<typeof getCompactorStatus>;
+  sleep_learner: ReturnType<typeof getSleepLearnerStatus>;
   policy_enforcement: {
     cache_path: string;
     cache_present: boolean;
@@ -218,6 +220,7 @@ export async function checkSystemHealth(): Promise<HealthReport> {
     },
     keep_alive: getKeepAliveStatus(),
     trajectory_compactor: getCompactorStatus(),
+    sleep_learner: getSleepLearnerStatus(),
     policy_enforcement: policy,
     orchestrator,
     summary,

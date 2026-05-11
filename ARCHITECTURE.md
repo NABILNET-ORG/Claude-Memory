@@ -317,8 +317,85 @@ flowchart LR
 **Read-path invariant.** The HNSW index and `memory_chunks` rows are never mutated by M2. The substitution is a SQL projection: ranking still happens against the original embedding (high recall preserved), but the returned `content` field is swapped to the dense summary when one exists. Raw text is *one tool call away* (`get_trajectory_summary`) but stays out of context unless explicitly requested. A 4 000-token raw trajectory becomes a 50-token line in the agent's window — an 80× context saving per compressed row, compounding over thousands of past sessions.
 
 **Forward links to later missions:**
-- **M3 (Sleep Learning):** the idle daemon mines `trajectory_summaries` JOIN `archive_backlog` for repeated successful sequences and calls `package_skill` autonomously — compressed summaries are dramatically cheaper to scan than raw logs.
+- **M3 (Sleep Learning):** the idle daemon mines `trajectory_summaries` JOIN `archive_backlog` for repeated successful sequences and proposes them as `skill_candidates` for curated promotion (auto-promotion off by default) — compressed summaries are dramatically cheaper to scan than raw logs. See §4.6.
 - **M4 (Transactional Workflows):** per-step trajectory summaries become checkpoint deltas, enabling resume-from-step without replaying raw operational logs.
+
+---
+
+### 4.6 Sleep Learning — Idle Skill Mining (Agentic OS 2026 — Mission 3)
+
+**Goal.** During idle cycles, mine the archive of completed successful tasks for recurring patterns and propose them as reusable skills. The agent stays the *curator*: candidates are surfaced for human review, never silently merged into the M1 retrieval surface.
+
+**Storage decision:** new table `skill_candidates`, NOT a column on `agent_skills`. Rationale: candidates are unpromoted, high-churn mining state with provenance arrays back to source summaries / archive rows; `agent_skills` is the clean, promoted, JIT-retrieval surface. Mixing them would pollute M1 recall.
+
+**Proposed schema (`scripts/012_sleep_learning.sql`):**
+
+| Column                | Type           | Purpose                                    |
+|-----------------------|----------------|--------------------------------------------|
+| id                    | bigserial PK   |                                            |
+| project_id            | text NOT NULL  | Tenancy (GLOBAL permitted on promotion)    |
+| pattern_hash          | text NOT NULL  | n-gram + cluster-id hash (idempotency key) |
+| source_summary_ids    | bigint[]       | FK → `trajectory_summaries` (provenance)   |
+| source_backlog_ids    | bigint[]       | FK → `archive_backlog` (provenance)        |
+| frequency             | int            | How many times the pattern appeared        |
+| success_count         | int            | Of those, how many were `status='success'` |
+| candidate_embedding   | vector(768)    | HNSW recall for dedupe                     |
+| proposed_name         | text           | LLM-generated skill name                   |
+| proposed_steps        | jsonb          | LLM-generated step list                    |
+| promoted_skill_id     | bigint NULL    | FK → `agent_skills` (after promotion)      |
+| state                 | text           | `mined` / `promoted` / `rejected`          |
+| model, strategy       | text           | Audit                                      |
+| created_at, updated_at| timestamptz    |                                            |
+
+Indexes: UNIQUE(`project_id`, `pattern_hash`); HNSW on `candidate_embedding` (cosine); btree on (`state`, `frequency DESC`).
+RLS: `deny_anon_authenticated` (mirrors `006_security_hardening`).
+RPCs: `match_skill_candidates`, `upsert_skill_candidate`, `promote_candidate_to_skill` — all `SECURITY DEFINER` with `search_path` including `'extensions'` (ERROR-11507 lesson).
+
+**Tool surface (`src/tools/sleep.ts`):**
+
+- `list_skill_candidates({ state?, limit? })` — review queue.
+- `promote_skill_candidate({ candidate_id })` — manual approve → writes to `agent_skills` (wraps M1's `package_skill`).
+- `reject_skill_candidate({ candidate_id, reason })` — soft-reject, kept for audit.
+
+**Daemon (`src/sleep/`):**
+
+- `miner.ts` — pure clustering over `trajectory_summaries` INNER JOIN `archive_backlog WHERE status='success'` (cosine ≥ 0.85 + 3-gram hash).
+- `proposer.ts` — Ollama `gemma4:e2b` → JSON `{ name, steps }`. Mirrors `src/trajectory/summarizer.ts` defensive-parse pattern.
+- `daemon.ts` — `startSleepLearner()` / `stopSleepLearner()` / `getSleepLearnerStatus()` / `runMiningOnce()` / `mineOneCluster()`. `setInterval(...).unref()`; module-level re-entrancy guard; per-cluster try/catch.
+
+Env knobs: `SLEEP_LEARNER_INTERVAL_MS=3600000` (1 h, off-peak), `SLEEP_LEARNER_BATCH=10`, `SLEEP_LEARNER_MIN_FREQ=3`, `SLEEP_LEARNER_AUTO_PROMOTE=false`.
+
+Health: `check_system_health` gains a `sleep_learner` block (`{ enabled, interval_ms, last_run_at, last_run_mined, last_run_promoted, last_run_skipped, last_run_errored, last_run_duration_ms, candidates_mined_total, candidates_promoted_total }`), mirroring `trajectory_compactor`.
+
+**Write path (mining loop):**
+
+```mermaid
+flowchart LR
+  CRON[setInterval 1h .unref] --> MINER[miner.ts: cluster summaries x success-archive]
+  MINER --> HASH[pattern_hash + embedding centroid]
+  HASH --> DEDUPE{UNIQUE project_id pattern_hash exists?}
+  DEDUPE -- yes --> BUMP[bump frequency / success_count]
+  DEDUPE -- no  --> PROPOSE[proposer.ts: gemma4:e2b -> name + steps]
+  PROPOSE --> INSERT[upsert_skill_candidate state=mined]
+  BUMP --> DONE[health.sleep_learner.last_run_at]
+  INSERT --> DONE
+```
+
+**Read path (curated promotion):**
+
+```mermaid
+flowchart LR
+  USER[user / list_skill_candidates] --> REVIEW{state?}
+  REVIEW -- mined --> PROMOTE[promote_skill_candidate]
+  PROMOTE --> PACKAGE[package_skill - M1 tool]
+  PACKAGE --> SKILLS[(agent_skills)]
+  REVIEW -- reject --> REJECT[reject_skill_candidate state=rejected, reason]
+  REJECT --> AUDIT[(skill_candidates state=rejected)]
+```
+
+**Curator invariant.** `SLEEP_LEARNER_AUTO_PROMOTE=false` by default. The daemon mines and proposes; promotion to the JIT skill vault (M1 `agent_skills`) is always a curated event. Full autonomy belongs to M5.
+
+**Forward links.** M4 (Transactional Workflows) supplies success-checkpoint chains as additional mining input. M5 (Autonomous Curriculum) is the only mission that may flip `AUTO_PROMOTE=true`.
 
 ---
 
@@ -364,166 +441,184 @@ flowchart TD
   n8 --> n15
   n16["SESSION-17-REPORT.md"]
   n8 --> n16
-  n17["IDE-INTEGRATION.md"]
-  n2 --> n17
-  n18["NEXT-SESSION-PROMPT.md"]
+  n17["SESSION-18-REPORT.md"]
+  n8 --> n17
+  n18["IDE-INTEGRATION.md"]
   n2 --> n18
-  n19["hooks/"]
-  n0 --> n19
-  n20["md-policy.py"]
-  n19 --> n20
-  n21["README.md"]
-  n19 --> n21
-  n22["images/"]
-  n0 --> n22
-  n23["GPT SMC v2.0-rc1.png"]
-  n22 --> n23
-  n24["scripts/"]
-  n0 --> n24
-  n25["001_schema.sql"]
-  n24 --> n25
-  n26["002_multi_project.sql"]
-  n24 --> n26
-  n27["003_file_hash.sql"]
-  n24 --> n27
-  n28["004_backlog_frozen.sql"]
-  n24 --> n28
-  n29["005_archive_backlog.sql"]
-  n24 --> n29
-  n30["006_security_hardening.sql"]
-  n24 --> n30
-  n31["006_smoke.sql"]
-  n24 --> n31
-  n32["006_verify.sql"]
-  n24 --> n32
-  n33["007_metadata_typed_retrieval.sql"]
-  n24 --> n33
-  n34["008_global_scope.sql"]
-  n24 --> n34
-  n35["009_fix_rpc_dual_scope.sql"]
-  n24 --> n35
-  n36["010_agent_skills.sql"]
-  n24 --> n36
-  n37["011_trajectory_compaction.sql"]
-  n24 --> n37
-  n38["apply-schema.ts"]
-  n24 --> n38
-  n39["backup-and-remove.ts"]
-  n24 --> n39
-  n40["e2e-incremental-test.ts"]
-  n24 --> n40
-  n41["e2e-isolation-test.ts"]
-  n24 --> n41
-  n42["e2e-test.ts"]
-  n24 --> n42
-  n43["purge-samia-rules.ts"]
-  n24 --> n43
-  n44["smoke-008.ts"]
-  n24 --> n44
-  n45["smoke-010.ts"]
-  n24 --> n45
-  n46["verify-007.ts"]
-  n24 --> n46
-  n47["verify-008.ts"]
-  n24 --> n47
-  n48["src/"]
-  n0 --> n48
-  n49["tools/"]
-  n48 --> n49
-  n50["backlog.ts"]
-  n49 --> n50
-  n51["batch-freeze-patterns.ts"]
-  n49 --> n51
-  n52["bloat-audit.ts"]
-  n49 --> n52
-  n53["compact.ts"]
-  n49 --> n53
-  n54["conflict.ts"]
-  n49 --> n54
-  n55["frozen-cache.ts"]
-  n49 --> n55
-  n56["health.ts"]
-  n49 --> n56
-  n57["hygiene.ts"]
-  n49 --> n57
-  n58["image.ts"]
-  n49 --> n58
-  n59["orchestrator.ts"]
-  n49 --> n59
-  n60["policy.ts"]
-  n49 --> n60
-  n61["refactor.ts"]
-  n49 --> n61
-  n62["save.ts"]
-  n49 --> n62
-  n63["search.ts"]
-  n49 --> n63
-  n64["setup.ts"]
-  n49 --> n64
-  n65["skills.ts"]
-  n49 --> n65
-  n66["sovereign-constitution.ts"]
-  n49 --> n66
-  n67["summarize.ts"]
-  n49 --> n67
-  n68["sync.ts"]
-  n49 --> n68
-  n69["verification.ts"]
-  n49 --> n69
-  n70["trajectory/"]
-  n48 --> n70
-  n71["daemon.ts"]
-  n70 --> n71
-  n72["stripper.ts"]
-  n70 --> n72
-  n73["summarizer.ts"]
-  n70 --> n73
-  n74["chunker.ts"]
-  n48 --> n74
-  n75["config.ts"]
-  n48 --> n75
-  n76["index.ts"]
-  n48 --> n76
-  n77["ollama.ts"]
-  n48 --> n77
-  n78["project-detect.ts"]
-  n48 --> n78
-  n79["project.ts"]
-  n48 --> n79
-  n80["supabase.ts"]
-  n48 --> n80
-  n81["verification-gate.ts"]
-  n48 --> n81
-  n82["version.ts"]
-  n48 --> n82
-  n83["tests/"]
-  n0 --> n83
-  n84["trajectory-daemon.test.ts"]
-  n83 --> n84
-  n85["trajectory-stripper.test.ts"]
-  n83 --> n85
-  n86["trajectory-summarizer.test.ts"]
-  n83 --> n86
-  n87[".env.example"]
-  n0 --> n87
-  n88[".gitignore"]
-  n0 --> n88
-  n89["ARCHITECTURE.md"]
-  n0 --> n89
-  n90["CLAUDE.md"]
-  n0 --> n90
-  n91["LICENSE"]
-  n0 --> n91
-  n92["package-lock.json"]
+  n19["NEXT-SESSION-PROMPT.md"]
+  n2 --> n19
+  n20["hooks/"]
+  n0 --> n20
+  n21["md-policy.py"]
+  n20 --> n21
+  n22["README.md"]
+  n20 --> n22
+  n23["images/"]
+  n0 --> n23
+  n24["GPT SMC v2.0-rc1.png"]
+  n23 --> n24
+  n25["scripts/"]
+  n0 --> n25
+  n26["001_schema.sql"]
+  n25 --> n26
+  n27["002_multi_project.sql"]
+  n25 --> n27
+  n28["003_file_hash.sql"]
+  n25 --> n28
+  n29["004_backlog_frozen.sql"]
+  n25 --> n29
+  n30["005_archive_backlog.sql"]
+  n25 --> n30
+  n31["006_security_hardening.sql"]
+  n25 --> n31
+  n32["006_smoke.sql"]
+  n25 --> n32
+  n33["006_verify.sql"]
+  n25 --> n33
+  n34["007_metadata_typed_retrieval.sql"]
+  n25 --> n34
+  n35["008_global_scope.sql"]
+  n25 --> n35
+  n36["009_fix_rpc_dual_scope.sql"]
+  n25 --> n36
+  n37["010_agent_skills.sql"]
+  n25 --> n37
+  n38["011_trajectory_compaction.sql"]
+  n25 --> n38
+  n39["012_sleep_learning.sql"]
+  n25 --> n39
+  n40["013_archive_backlog_chunk_link.sql"]
+  n25 --> n40
+  n41["apply-schema.ts"]
+  n25 --> n41
+  n42["backup-and-remove.ts"]
+  n25 --> n42
+  n43["e2e-incremental-test.ts"]
+  n25 --> n43
+  n44["e2e-isolation-test.ts"]
+  n25 --> n44
+  n45["e2e-test.ts"]
+  n25 --> n45
+  n46["purge-samia-rules.ts"]
+  n25 --> n46
+  n47["smoke-008.ts"]
+  n25 --> n47
+  n48["smoke-010.ts"]
+  n25 --> n48
+  n49["smoke-012.ts"]
+  n25 --> n49
+  n50["verify-007.ts"]
+  n25 --> n50
+  n51["… (1 more)"]
+  n25 --> n51
+  n52["src/"]
+  n0 --> n52
+  n53["sleep/"]
+  n52 --> n53
+  n54["daemon.ts"]
+  n53 --> n54
+  n55["miner.ts"]
+  n53 --> n55
+  n56["proposer.ts"]
+  n53 --> n56
+  n57["tools/"]
+  n52 --> n57
+  n58["backlog.ts"]
+  n57 --> n58
+  n59["batch-freeze-patterns.ts"]
+  n57 --> n59
+  n60["bloat-audit.ts"]
+  n57 --> n60
+  n61["compact.ts"]
+  n57 --> n61
+  n62["conflict.ts"]
+  n57 --> n62
+  n63["frozen-cache.ts"]
+  n57 --> n63
+  n64["health.ts"]
+  n57 --> n64
+  n65["hygiene.ts"]
+  n57 --> n65
+  n66["image.ts"]
+  n57 --> n66
+  n67["orchestrator.ts"]
+  n57 --> n67
+  n68["policy.ts"]
+  n57 --> n68
+  n69["refactor.ts"]
+  n57 --> n69
+  n70["save.ts"]
+  n57 --> n70
+  n71["search.ts"]
+  n57 --> n71
+  n72["setup.ts"]
+  n57 --> n72
+  n73["skills.ts"]
+  n57 --> n73
+  n74["sleep.ts"]
+  n57 --> n74
+  n75["sovereign-constitution.ts"]
+  n57 --> n75
+  n76["summarize.ts"]
+  n57 --> n76
+  n77["sync.ts"]
+  n57 --> n77
+  n78["verification.ts"]
+  n57 --> n78
+  n79["trajectory/"]
+  n52 --> n79
+  n80["daemon.ts"]
+  n79 --> n80
+  n81["stripper.ts"]
+  n79 --> n81
+  n82["summarizer.ts"]
+  n79 --> n82
+  n83["chunker.ts"]
+  n52 --> n83
+  n84["config.ts"]
+  n52 --> n84
+  n85["index.ts"]
+  n52 --> n85
+  n86["ollama.ts"]
+  n52 --> n86
+  n87["project-detect.ts"]
+  n52 --> n87
+  n88["project.ts"]
+  n52 --> n88
+  n89["supabase.ts"]
+  n52 --> n89
+  n90["verification-gate.ts"]
+  n52 --> n90
+  n91["version.ts"]
+  n52 --> n91
+  n92["tests/"]
   n0 --> n92
-  n93["package.json"]
-  n0 --> n93
-  n94["project_file_architecture.md"]
-  n0 --> n94
-  n95["README.md"]
-  n0 --> n95
-  n96["tsconfig.json"]
+  n93["trajectory-daemon.test.ts"]
+  n92 --> n93
+  n94["trajectory-stripper.test.ts"]
+  n92 --> n94
+  n95["trajectory-summarizer.test.ts"]
+  n92 --> n95
+  n96[".env.example"]
   n0 --> n96
+  n97[".gitignore"]
+  n0 --> n97
+  n98["ARCHITECTURE.md"]
+  n0 --> n98
+  n99["CLAUDE.md"]
+  n0 --> n99
+  n100["LICENSE"]
+  n0 --> n100
+  n101["package-lock.json"]
+  n0 --> n101
+  n102["package.json"]
+  n0 --> n102
+  n103["project_file_architecture.md"]
+  n0 --> n103
+  n104["README.md"]
+  n0 --> n104
+  n105["tsconfig.json"]
+  n0 --> n105
 ```
 
 <!-- MEMORY:ARCH:END -->

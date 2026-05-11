@@ -31,7 +31,16 @@ import {
   getTrajectorySummaryHandler,
   getTrajectorySummaryInputShape,
 } from "./tools/compact.js";
+import {
+  listSkillCandidates,
+  listSkillCandidatesInputShape,
+  promoteSkillCandidate,
+  promoteSkillCandidateInputShape,
+  rejectSkillCandidate,
+  rejectSkillCandidateInputShape,
+} from "./tools/sleep.js";
 import { startCompactor } from "./trajectory/daemon.js";
+import { startSleepLearner } from "./sleep/daemon.js";
 import { ensureSchema, startKeepAlive, writeFrozenPatternsCache } from "./supabase.js";
 import { currentProjectId } from "./project.js";
 import { VERSION } from "./version.js";
@@ -64,6 +73,12 @@ startKeepAlive();
 // batch of bloated memory_chunks rows and compresses them into
 // trajectory_summaries. .unref()'d so it never blocks process exit.
 startCompactor();
+
+// Start the sleep learning daemon (Agentic OS 2026 / Mission 3).
+// Idle miner: every SLEEP_LEARNER_INTERVAL_MS, mines clusters from
+// trajectory_summaries ⋈ archive_backlog and emits skill_candidates.
+// .unref()'d so it never blocks process exit.
+startSleepLearner();
 
 // Export the current frozen_features snapshot to the shared cache file so
 // hooks/md-policy.py can read it without hitting Supabase per tool call.
@@ -275,6 +290,35 @@ server.tool(
     content: [
       { type: "text", text: JSON.stringify(await getTrajectorySummaryHandler(args), null, 2) },
     ],
+  }),
+);
+
+// ─── Agentic OS 2026 — Sleep Learning (SCM-S19-D1) ─────────────────────────
+
+server.tool(
+  "list_skill_candidates",
+  "Review queue for the Sleep Learning miner. SELECT from skill_candidates filtered by project_id and optional lifecycle state ('mined' = pending review, 'promoted' = already minted into agent_skills, 'rejected' = vetoed). Ordered by frequency DESC so the highest-signal patterns surface first. Pass state='mined' to inspect what the idle daemon proposed; pass no state to audit the full history.",
+  listSkillCandidatesInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await listSkillCandidates(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "promote_skill_candidate",
+  "Mint a mined skill_candidate into agent_skills via the promote_candidate_to_skill RPC. Identity (project_id, proposed_name) reuses package_skill's upsert path: re-promoting the same name bumps the version while preserving telemetry. Description defaults to proposed_name + a digest of proposed_steps; pass description to override. trigger_keywords mirrors package_skill for the M1 detector.",
+  promoteSkillCandidateInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await promoteSkillCandidate(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "reject_skill_candidate",
+  "Veto a mined skill_candidate. Sets state='rejected' and persists rejection_reason for audit. The (project_id, pattern_hash) pair stays rejected across future mining runs — re-mining the same cluster will not resurrect it.",
+  rejectSkillCandidateInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await rejectSkillCandidate(args), null, 2) }],
   }),
 );
 
