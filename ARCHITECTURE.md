@@ -362,146 +362,168 @@ flowchart TD
   n8 --> n14
   n15["SESSION-16-REPORT.md"]
   n8 --> n15
-  n16["IDE-INTEGRATION.md"]
-  n2 --> n16
-  n17["NEXT-SESSION-PROMPT.md"]
+  n16["SESSION-17-REPORT.md"]
+  n8 --> n16
+  n17["IDE-INTEGRATION.md"]
   n2 --> n17
-  n18["hooks/"]
-  n0 --> n18
-  n19["md-policy.py"]
-  n18 --> n19
-  n20["README.md"]
-  n18 --> n20
-  n21["images/"]
-  n0 --> n21
-  n22["GPT SMC v2.0-rc1.png"]
-  n21 --> n22
-  n23["scripts/"]
-  n0 --> n23
-  n24["001_schema.sql"]
-  n23 --> n24
-  n25["002_multi_project.sql"]
-  n23 --> n25
-  n26["003_file_hash.sql"]
-  n23 --> n26
-  n27["004_backlog_frozen.sql"]
-  n23 --> n27
-  n28["005_archive_backlog.sql"]
-  n23 --> n28
-  n29["006_security_hardening.sql"]
-  n23 --> n29
-  n30["006_smoke.sql"]
-  n23 --> n30
-  n31["006_verify.sql"]
-  n23 --> n31
-  n32["007_metadata_typed_retrieval.sql"]
-  n23 --> n32
-  n33["008_global_scope.sql"]
-  n23 --> n33
-  n34["009_fix_rpc_dual_scope.sql"]
-  n23 --> n34
-  n35["010_agent_skills.sql"]
-  n23 --> n35
-  n36["apply-schema.ts"]
-  n23 --> n36
-  n37["backup-and-remove.ts"]
-  n23 --> n37
-  n38["e2e-incremental-test.ts"]
-  n23 --> n38
-  n39["e2e-isolation-test.ts"]
-  n23 --> n39
-  n40["e2e-test.ts"]
-  n23 --> n40
-  n41["purge-samia-rules.ts"]
-  n23 --> n41
-  n42["smoke-008.ts"]
-  n23 --> n42
-  n43["smoke-010.ts"]
-  n23 --> n43
-  n44["verify-007.ts"]
-  n23 --> n44
-  n45["verify-008.ts"]
-  n23 --> n45
-  n46["src/"]
-  n0 --> n46
-  n47["tools/"]
-  n46 --> n47
-  n48["backlog.ts"]
-  n47 --> n48
-  n49["batch-freeze-patterns.ts"]
-  n47 --> n49
-  n50["bloat-audit.ts"]
-  n47 --> n50
-  n51["conflict.ts"]
-  n47 --> n51
-  n52["frozen-cache.ts"]
-  n47 --> n52
-  n53["health.ts"]
-  n47 --> n53
-  n54["hygiene.ts"]
-  n47 --> n54
-  n55["image.ts"]
-  n47 --> n55
-  n56["orchestrator.ts"]
-  n47 --> n56
-  n57["policy.ts"]
-  n47 --> n57
-  n58["refactor.ts"]
-  n47 --> n58
-  n59["save.ts"]
-  n47 --> n59
-  n60["search.ts"]
-  n47 --> n60
-  n61["setup.ts"]
-  n47 --> n61
-  n62["skills.ts"]
-  n47 --> n62
-  n63["sovereign-constitution.ts"]
-  n47 --> n63
-  n64["summarize.ts"]
-  n47 --> n64
-  n65["sync.ts"]
-  n47 --> n65
-  n66["verification.ts"]
-  n47 --> n66
-  n67["chunker.ts"]
-  n46 --> n67
-  n68["config.ts"]
-  n46 --> n68
-  n69["index.ts"]
-  n46 --> n69
-  n70["ollama.ts"]
-  n46 --> n70
-  n71["project-detect.ts"]
-  n46 --> n71
-  n72["project.ts"]
-  n46 --> n72
-  n73["supabase.ts"]
-  n46 --> n73
-  n74["verification-gate.ts"]
-  n46 --> n74
-  n75["version.ts"]
-  n46 --> n75
-  n76[".env.example"]
-  n0 --> n76
-  n77[".gitignore"]
-  n0 --> n77
-  n78["ARCHITECTURE.md"]
-  n0 --> n78
-  n79["CLAUDE.md"]
-  n0 --> n79
-  n80["LICENSE"]
-  n0 --> n80
-  n81["package-lock.json"]
-  n0 --> n81
-  n82["package.json"]
-  n0 --> n82
-  n83["project_file_architecture.md"]
+  n18["NEXT-SESSION-PROMPT.md"]
+  n2 --> n18
+  n19["hooks/"]
+  n0 --> n19
+  n20["md-policy.py"]
+  n19 --> n20
+  n21["README.md"]
+  n19 --> n21
+  n22["images/"]
+  n0 --> n22
+  n23["GPT SMC v2.0-rc1.png"]
+  n22 --> n23
+  n24["scripts/"]
+  n0 --> n24
+  n25["001_schema.sql"]
+  n24 --> n25
+  n26["002_multi_project.sql"]
+  n24 --> n26
+  n27["003_file_hash.sql"]
+  n24 --> n27
+  n28["004_backlog_frozen.sql"]
+  n24 --> n28
+  n29["005_archive_backlog.sql"]
+  n24 --> n29
+  n30["006_security_hardening.sql"]
+  n24 --> n30
+  n31["006_smoke.sql"]
+  n24 --> n31
+  n32["006_verify.sql"]
+  n24 --> n32
+  n33["007_metadata_typed_retrieval.sql"]
+  n24 --> n33
+  n34["008_global_scope.sql"]
+  n24 --> n34
+  n35["009_fix_rpc_dual_scope.sql"]
+  n24 --> n35
+  n36["010_agent_skills.sql"]
+  n24 --> n36
+  n37["011_trajectory_compaction.sql"]
+  n24 --> n37
+  n38["apply-schema.ts"]
+  n24 --> n38
+  n39["backup-and-remove.ts"]
+  n24 --> n39
+  n40["e2e-incremental-test.ts"]
+  n24 --> n40
+  n41["e2e-isolation-test.ts"]
+  n24 --> n41
+  n42["e2e-test.ts"]
+  n24 --> n42
+  n43["purge-samia-rules.ts"]
+  n24 --> n43
+  n44["smoke-008.ts"]
+  n24 --> n44
+  n45["smoke-010.ts"]
+  n24 --> n45
+  n46["verify-007.ts"]
+  n24 --> n46
+  n47["verify-008.ts"]
+  n24 --> n47
+  n48["src/"]
+  n0 --> n48
+  n49["tools/"]
+  n48 --> n49
+  n50["backlog.ts"]
+  n49 --> n50
+  n51["batch-freeze-patterns.ts"]
+  n49 --> n51
+  n52["bloat-audit.ts"]
+  n49 --> n52
+  n53["compact.ts"]
+  n49 --> n53
+  n54["conflict.ts"]
+  n49 --> n54
+  n55["frozen-cache.ts"]
+  n49 --> n55
+  n56["health.ts"]
+  n49 --> n56
+  n57["hygiene.ts"]
+  n49 --> n57
+  n58["image.ts"]
+  n49 --> n58
+  n59["orchestrator.ts"]
+  n49 --> n59
+  n60["policy.ts"]
+  n49 --> n60
+  n61["refactor.ts"]
+  n49 --> n61
+  n62["save.ts"]
+  n49 --> n62
+  n63["search.ts"]
+  n49 --> n63
+  n64["setup.ts"]
+  n49 --> n64
+  n65["skills.ts"]
+  n49 --> n65
+  n66["sovereign-constitution.ts"]
+  n49 --> n66
+  n67["summarize.ts"]
+  n49 --> n67
+  n68["sync.ts"]
+  n49 --> n68
+  n69["verification.ts"]
+  n49 --> n69
+  n70["trajectory/"]
+  n48 --> n70
+  n71["daemon.ts"]
+  n70 --> n71
+  n72["stripper.ts"]
+  n70 --> n72
+  n73["summarizer.ts"]
+  n70 --> n73
+  n74["chunker.ts"]
+  n48 --> n74
+  n75["config.ts"]
+  n48 --> n75
+  n76["index.ts"]
+  n48 --> n76
+  n77["ollama.ts"]
+  n48 --> n77
+  n78["project-detect.ts"]
+  n48 --> n78
+  n79["project.ts"]
+  n48 --> n79
+  n80["supabase.ts"]
+  n48 --> n80
+  n81["verification-gate.ts"]
+  n48 --> n81
+  n82["version.ts"]
+  n48 --> n82
+  n83["tests/"]
   n0 --> n83
-  n84["README.md"]
-  n0 --> n84
-  n85["tsconfig.json"]
-  n0 --> n85
+  n84["trajectory-daemon.test.ts"]
+  n83 --> n84
+  n85["trajectory-stripper.test.ts"]
+  n83 --> n85
+  n86["trajectory-summarizer.test.ts"]
+  n83 --> n86
+  n87[".env.example"]
+  n0 --> n87
+  n88[".gitignore"]
+  n0 --> n88
+  n89["ARCHITECTURE.md"]
+  n0 --> n89
+  n90["CLAUDE.md"]
+  n0 --> n90
+  n91["LICENSE"]
+  n0 --> n91
+  n92["package-lock.json"]
+  n0 --> n92
+  n93["package.json"]
+  n0 --> n93
+  n94["project_file_architecture.md"]
+  n0 --> n94
+  n95["README.md"]
+  n0 --> n95
+  n96["tsconfig.json"]
+  n0 --> n96
 ```
 
 <!-- MEMORY:ARCH:END -->
