@@ -186,6 +186,72 @@ flowchart LR
 
 The dual-scope union does NOT relax tenancy: every row remains tagged with its origin `project_id`, so caller code can still distinguish "from this project" vs "from the global vault". `'GLOBAL'` is reserved — `init_project` slugifies the cwd basename, which never produces this literal, so no project can accidentally write to the vault by being in a directory called "GLOBAL"; the only entry is the explicit `is_global: true` flag.
 
+### 4.4 JIT Skill Vault (Agentic OS 2026 — Mission 1, proposed)
+
+**Goal.** Support thousands of procedural skills (multi-step recipes the agent can execute) without prompt bloat. Skills are stored at rest, retrieved on demand by semantic similarity to the current task, and Just-In-Time injected into context only for the turn that needs them. Zero-Bloat RAG.
+
+**Storage decision: dedicated `agent_skills` table — DO NOT extend `memory_chunks` with `metadata.type='SKILL'`.**
+
+Rationale (single decisive reason): skill telemetry (`frequency_used`, `last_invoked_at`, `success_rate`) is high-churn mutable state. Co-locating it with the immutable `memory_chunks` HNSW index would dirty vector pages on every skill invocation and degrade recall latency for every other retrieval path (DECISION, PATTERN, ERROR, LOG). Skills also need richer relational structure (UNIQUE skill name, FK to `archive_backlog` for Sleep-Learning provenance, `text[]` trigger keywords) that does not fit JSONB cleanly.
+
+**Proposed schema** (migration `010_agent_skills.sql`, to land in M1):
+
+| Column | Type | Purpose |
+|---|---|---|
+| `id` | `bigserial PK` | Stable handle |
+| `project_id` | `text NOT NULL` | Tenancy; `'GLOBAL'` permitted for universal skills |
+| `name` | `text NOT NULL` | Human-readable slug (e.g. `commit-with-heredoc`) |
+| `version` | `int NOT NULL DEFAULT 1` | Monotonic; bumps on `package_skill` re-write |
+| `description` | `text NOT NULL` | Short trigger summary — gets embedded |
+| `steps` | `jsonb NOT NULL` | Ordered procedural steps (the actual recipe payload) |
+| `trigger_keywords` | `text[] DEFAULT '{}'` | GIN-indexed literal triggers |
+| `embedding` | `vector(768)` | Ollama `nomic-embed-text` of `description` |
+| `frequency_used` | `int NOT NULL DEFAULT 0` | Incremented by `request_skill` |
+| `success_rate` | `real NOT NULL DEFAULT 1.0` | Updated by post-invocation telemetry |
+| `last_invoked_at` | `timestamptz` | Recency signal for ranking |
+| `packaged_from_archive_id` | `bigint` | FK → `archive_backlog.id` (Sleep-Learning provenance, nullable) |
+| `created_at` / `updated_at` | `timestamptz` | Audit |
+
+Indexes: HNSW on `embedding` (cosine), GIN on `trigger_keywords`, btree on `(project_id, name)` UNIQUE, btree on `last_invoked_at DESC` for recency tie-breaks. RLS reuses the `006_security_hardening` `deny_anon_authenticated` policy verbatim — service-role only.
+
+**Tool surface (new in M1):**
+
+- `package_skill({ name, description, steps, trigger_keywords?, is_global?, packaged_from_archive_id? })` — embeds `description` via Ollama, upserts the row (version bumps on conflict), returns `{ id, version, scope }`. `is_global: true` routes to `project_id='GLOBAL'` exactly like `save_memory` does.
+- `request_skill({ query, k?, min_similarity?, include_global? })` — embeds `query`, runs `match_agent_skills(query_embedding, p_project_id, match_count, min_similarity, p_include_global)` RPC, increments `frequency_used` and sets `last_invoked_at` on the chosen hit, returns the **full `steps` payload** for the top-k matches. This is the JIT injection point: only matched skills enter context.
+
+**Workflow — package_skill (write path):**
+
+```mermaid
+flowchart LR
+  A[agent identifies<br/>reusable recipe] --> B[package_skill call]
+  B --> C[Ollama embed<br/>description -> 768d]
+  C --> D{conflict on<br/>project_id,name?}
+  D -->|no| E[INSERT v1]
+  D -->|yes| F[UPDATE: bump version,<br/>replace steps + embedding]
+  E --> G[(agent_skills)]
+  F --> G
+```
+
+**Workflow — request_skill (JIT read path):**
+
+```mermaid
+flowchart LR
+  Q[turn needs a recipe] --> E[Ollama embed query]
+  E --> R[match_agent_skills RPC<br/>project_id + GLOBAL]
+  R --> F{similarity >=<br/>min_similarity?}
+  F -->|no| N[return empty —<br/>no JIT injection]
+  F -->|yes| K[top-k by<br/>0.85 * cosine + 0.15 * recency]
+  K --> T[UPDATE frequency_used,<br/>last_invoked_at]
+  T --> O[return steps payload<br/>to caller context]
+```
+
+**Zero-Bloat invariant.** Skills are NEVER preloaded into the orchestrator's system prompt. The only path from `agent_skills` into context is an explicit `request_skill` call, and the response carries only the matched `steps` rows. A vault of 10 000 skills costs zero context until one is invoked.
+
+**Forward links to later missions:**
+- **M3 (Sleep Learning):** the idle daemon mines `archive_backlog` for repeated successful sequences and calls `package_skill` autonomously, setting `packaged_from_archive_id` for provenance.
+- **M2 (Trajectory Compression):** compressed operational summaries that prove to be reusable become skill candidates fed to M3.
+- **M4 (Transactional Workflows):** multi-step skills retrieved via `request_skill` are the natural unit for checkpoint/rollback boundaries.
+
 ---
 
 ## 5. File Architecture (auto-generated)

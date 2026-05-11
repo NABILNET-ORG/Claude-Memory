@@ -19,6 +19,12 @@ import { refactorGuard } from "./tools/refactor.js";
 import { analyzeRegression } from "./tools/verification.js";
 import { delegateTask, syncArtefacts } from "./tools/orchestrator.js";
 import { upgradeConstitutionBlock } from "./tools/sovereign-constitution.js";
+import {
+  packageSkill,
+  packageSkillInputShape,
+  requestSkill,
+  requestSkillInputShape,
+} from "./tools/skills.js";
 import { ensureSchema, startKeepAlive, writeFrozenPatternsCache } from "./supabase.js";
 import { currentProjectId } from "./project.js";
 import { VERSION } from "./version.js";
@@ -213,6 +219,26 @@ server.tool(
     });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   },
+);
+
+// ─── Agentic OS 2026 — JIT Skill Retrieval (SCM-S17-D1) ────────────────────
+
+server.tool(
+  "package_skill",
+  "Persist an executable Skill — an ordered list of steps the agent can follow when a matching task arrives — into the dedicated agent_skills relation (NOT memory_chunks; skills are executable artefacts, not retrieval notes). Identity key is (project_id, name); re-packaging the same name bumps the version while preserving telemetry (frequency_used, success_rate, last_invoked_at). The description is embedded for semantic retrieval by request_skill; the steps array is stored verbatim and returned as-is at request time. Set is_global=true ONLY for procedures that apply to ALL projects (e.g., 'create a git commit', 'open a PR'); the row routes to project_id='GLOBAL' regardless of any explicit project_id. Cross-Project Test: if the current project were deleted tomorrow, would this skill still be a gold-standard reference for others? If no, keep it local. Skills are NEVER preloaded into the LLM context — they are injected on demand by request_skill.",
+  packageSkillInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await packageSkill(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "request_skill",
+  "Just-In-Time Skill Retrieval. Semantic search over the agent_skills relation, dual-scoped across the current project_id AND the reserved 'GLOBAL' skill vault by default. Returns up to k skills ranked by a weighted blend of cosine similarity (0.85) and recency decay (0.15) over last_invoked_at — a stale-but-relevant skill still beats a recent-but-irrelevant one. Returning the full `steps` payload is INTENTIONAL: this is the JIT injection. Skills are NEVER preloaded into the system prompt; the agent calls request_skill exactly when it needs the procedure for the current task, gets the executable steps verbatim, and follows them. Pass include_global=false to restrict to the current project. record_telemetry=true (default) fire-and-forget bumps frequency_used / last_invoked_at / success_rate for every hit so the ranking surface adapts to actual usage; pass false for read-only probes.",
+  requestSkillInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await requestSkill(args), null, 2) }],
+  }),
 );
 
 // ─── v0.5.0 tools ─────────────────────────────────────────────────────────
