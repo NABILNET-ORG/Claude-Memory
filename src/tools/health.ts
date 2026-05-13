@@ -2,10 +2,111 @@ import { stat, readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { config } from "../config.js";
 import { supabase, getKeepAliveStatus, FROZEN_CACHE_PATH } from "../supabase.js";
+import { currentProjectId } from "../project.js";
 import { getCompactorStatus } from "../trajectory/daemon.js";
 import { getSleepLearnerStatus } from "../sleep/daemon.js";
 import { getCurriculumStatus } from "../curriculum/daemon.js";
 import { VERSION } from "../version.js";
+
+// Per-daemon health derivation thresholds. Names use the user-mandated
+// `_DEFAULT` suffix; reads are once-at-module-load with safe fallback.
+const envNum = (k: string, def: number): number => {
+  const raw = process.env[k];
+  if (raw === undefined) return def;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : def;
+};
+const OBS_ERR_RATE_DEGRADED = envNum("OBS_ERR_RATE_DEGRADED_DEFAULT", 0.2);
+const OBS_ERR_RATE_DOWN = envNum("OBS_ERR_RATE_DOWN_DEFAULT", 0.5);
+const OBS_STALENESS_MULTIPLIER = envNum("OBS_STALENESS_MULTIPLIER_DEFAULT", 2.0);
+
+type DerivedStatus = "healthy" | "degraded" | "down";
+
+type DerivedBlock = {
+  status: DerivedStatus;
+  reason: string;
+  error_rate_1h: number;
+  staleness_ms: number | null;
+  last_run_ended_at: string | null;
+};
+
+type TelemetryRow = { event_type: string; created_at: string };
+
+function deriveDaemonStatus(
+  rows: TelemetryRow[],
+  intervalMs: number,
+  enabled: boolean,
+  lastRunAtIso: string | null,
+): DerivedBlock {
+  // `enabled=false` short-circuit MUST come first — a disabled daemon
+  // is out of scope for liveness and cannot be "down".
+  if (!enabled) {
+    return {
+      status: "healthy",
+      reason: "daemon disabled (out of scope)",
+      error_rate_1h: 0,
+      staleness_ms: null,
+      last_run_ended_at: null,
+    };
+  }
+  const now = Date.now();
+  const mostRecentRunEnded =
+    rows.find((r) => r.event_type === "run_ended")?.created_at ?? null;
+  const effectiveLast = lastRunAtIso ?? mostRecentRunEnded;
+  if (effectiveLast === null) {
+    return {
+      status: "down",
+      reason: "no run_ended events on record",
+      error_rate_1h: 0,
+      staleness_ms: null,
+      last_run_ended_at: null,
+    };
+  }
+  const stalenessMs = now - Date.parse(effectiveLast);
+  const staleThreshold = intervalMs * OBS_STALENESS_MULTIPLIER;
+  if (stalenessMs > staleThreshold) {
+    return {
+      status: "down",
+      reason: `stale (${stalenessMs}ms since last run; threshold=${staleThreshold}ms = interval_ms*${OBS_STALENESS_MULTIPLIER})`,
+      error_rate_1h: 0,
+      staleness_ms: stalenessMs,
+      last_run_ended_at: effectiveLast,
+    };
+  }
+  let runs = 0;
+  let errors = 0;
+  for (const r of rows) {
+    if (r.event_type === "run_ended") runs++;
+    else if (r.event_type === "run_errored") errors++;
+  }
+  const denom = runs + errors;
+  const errRate = denom === 0 ? 0 : errors / denom;
+  if (errRate > OBS_ERR_RATE_DOWN) {
+    return {
+      status: "down",
+      reason: `error_rate_1h=${errRate.toFixed(3)} > ${OBS_ERR_RATE_DOWN}`,
+      error_rate_1h: errRate,
+      staleness_ms: stalenessMs,
+      last_run_ended_at: effectiveLast,
+    };
+  }
+  if (errRate > OBS_ERR_RATE_DEGRADED) {
+    return {
+      status: "degraded",
+      reason: `error_rate_1h=${errRate.toFixed(3)} > ${OBS_ERR_RATE_DEGRADED}`,
+      error_rate_1h: errRate,
+      staleness_ms: stalenessMs,
+      last_run_ended_at: effectiveLast,
+    };
+  }
+  return {
+    status: "healthy",
+    reason: "within thresholds",
+    error_rate_1h: errRate,
+    staleness_ms: stalenessMs,
+    last_run_ended_at: effectiveLast,
+  };
+}
 
 // Sovereign Orchestrator defaults (mirrored from delegateTask/buildWorkerPrompt).
 // Version is sourced from package.json via src/version.ts so health reports
@@ -41,9 +142,9 @@ type HealthReport = {
     missing: string[];
   };
   keep_alive: ReturnType<typeof getKeepAliveStatus>;
-  trajectory_compactor: ReturnType<typeof getCompactorStatus>;
-  sleep_learner: ReturnType<typeof getSleepLearnerStatus>;
-  curriculum_scanner: ReturnType<typeof getCurriculumStatus>;
+  trajectory_compactor: ReturnType<typeof getCompactorStatus> & { derived: DerivedBlock };
+  sleep_learner: ReturnType<typeof getSleepLearnerStatus> & { derived: DerivedBlock };
+  curriculum_scanner: ReturnType<typeof getCurriculumStatus> & { derived: DerivedBlock };
   policy_enforcement: {
     cache_path: string;
     cache_present: boolean;
@@ -196,12 +297,94 @@ export async function checkSystemHealth(): Promise<HealthReport> {
   ]);
   const checks = { supabase: supabaseCheck, ollama: ollamaResult.check };
 
-  const overall: HealthReport["overall"] =
+  let overall: HealthReport["overall"] =
     Object.values(checks).some((c) => c.status === "down")
       ? "down"
       : Object.values(checks).every((c) => c.status === "ok")
         ? "healthy"
         : "degraded";
+
+  // Query 1h of daemon telemetry in a single round-trip; group by daemon in JS.
+  // A query failure must NOT crash the health check — derive with empty rows
+  // so each derived block still respects enabled / last_run_at fallbacks.
+  const oneHourAgoIso = new Date(Date.now() - 3600_000).toISOString();
+  const byDaemon: Record<string, TelemetryRow[]> = {
+    sleep_learner: [],
+    curriculum_scanner: [],
+    trajectory_compactor: [],
+  };
+  try {
+    const { data: telemetryRows, error: telemetryErr } = await supabase
+      .from("daemon_telemetry")
+      .select("daemon, event_type, created_at")
+      .eq("project_id", currentProjectId)
+      .gte("created_at", oneHourAgoIso)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (telemetryErr) {
+      console.error(`[health] telemetry query failed: ${telemetryErr.message}`);
+    } else {
+      for (const r of (telemetryRows ?? []) as Array<
+        TelemetryRow & { daemon: string }
+      >) {
+        if (r.daemon in byDaemon) {
+          byDaemon[r.daemon].push({
+            event_type: r.event_type,
+            created_at: r.created_at,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[health] telemetry query threw: ${(e as Error).message}`);
+  }
+
+  const sleepSnap = getSleepLearnerStatus();
+  const currSnap = getCurriculumStatus();
+  const trajSnap = getCompactorStatus();
+
+  const sleepDerived = deriveDaemonStatus(
+    byDaemon.sleep_learner,
+    sleepSnap.interval_ms,
+    sleepSnap.enabled,
+    sleepSnap.last_run_at ?? null,
+  );
+  const currDerived = deriveDaemonStatus(
+    byDaemon.curriculum_scanner,
+    currSnap.interval_ms,
+    currSnap.enabled,
+    currSnap.last_run_at ?? null,
+  );
+  const trajDerived = deriveDaemonStatus(
+    byDaemon.trajectory_compactor,
+    trajSnap.interval_ms,
+    trajSnap.enabled,
+    trajSnap.last_run_at ?? null,
+  );
+
+  // Worst-of rollup: daemon derivation can only WORSEN overall, never improve it.
+  // Preserves any degraded/down already set by supabase/ollama checks above.
+  const SEVERITY: Record<string, number> = {
+    healthy: 0,
+    ok: 0,
+    degraded: 1,
+    down: 2,
+    unhealthy: 2,
+  };
+  const daemonStatuses: DerivedStatus[] = [
+    sleepDerived.status,
+    currDerived.status,
+    trajDerived.status,
+  ];
+  const worstDaemon = daemonStatuses.reduce<DerivedStatus>(
+    (a, b) => (SEVERITY[b] > SEVERITY[a] ? b : a),
+    "healthy",
+  );
+  const currentSev = SEVERITY[overall] ?? 0;
+  const worstSev = SEVERITY[worstDaemon] ?? 0;
+  if (worstSev > currentSev) {
+    overall = worstDaemon;
+  }
 
   const orchestrator = buildOrchestratorSnapshot(advisoryHook);
   const summary =
@@ -221,9 +404,9 @@ export async function checkSystemHealth(): Promise<HealthReport> {
       missing: ollamaResult.missing,
     },
     keep_alive: getKeepAliveStatus(),
-    trajectory_compactor: getCompactorStatus(),
-    sleep_learner: getSleepLearnerStatus(),
-    curriculum_scanner: getCurriculumStatus(),
+    trajectory_compactor: { ...trajSnap, derived: trajDerived },
+    sleep_learner: { ...sleepSnap, derived: sleepDerived },
+    curriculum_scanner: { ...currSnap, derived: currDerived },
     policy_enforcement: policy,
     orchestrator,
     summary,
