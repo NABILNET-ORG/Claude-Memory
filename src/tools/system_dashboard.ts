@@ -108,3 +108,90 @@ export async function systemDashboardHandler(input: DashboardInput) {
     daemons,
   };
 }
+
+type DashboardResult = Awaited<ReturnType<typeof systemDashboardHandler>>;
+
+function relTime(iso: string, now: number): string {
+  const ms = now - Date.parse(iso);
+  if (!Number.isFinite(ms)) return "?";
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `T-${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `T-${min}m`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `T-${hr}h`;
+  return `T-${Math.round(hr / 24)}d`;
+}
+
+function compactLive(snap: Record<string, unknown>): string {
+  const pick = [
+    "enabled", "running", "interval_ms", "last_run_at",
+    "candidates_mined_total", "queued_total",
+    "verified_total", "rejected_total", "auto_promotions_total",
+  ];
+  const parts: string[] = [];
+  for (const k of pick) {
+    if (!(k in snap)) continue;
+    const v = snap[k];
+    const short =
+      typeof v === "boolean" ? (v ? "t" : "f")
+      : v === null ? "null"
+      : typeof v === "number" ? String(v)
+      : typeof v === "string" ? v
+      : JSON.stringify(v);
+    parts.push(`${k}=${short}`);
+  }
+  return parts.join(" ");
+}
+
+export function renderDashboardMarkdown(result: DashboardResult): string {
+  const now = Date.now();
+  const order = ["sleep_learner", "curriculum_scanner", "trajectory_compactor"] as const;
+  const D = result.daemons as Record<string, any>;
+  const lines: string[] = [];
+
+  lines.push(`# Dashboard \`${result.project_id}\` · ${result.window_hours}h · ${result.generated_at}`);
+  lines.push("");
+  lines.push("| Daemon | runs 1h/24h | err 1h/24h | items 24h | v/r/ap 24h | err_rate | last_err |");
+  lines.push("|---|---|---|---|---|---|---|");
+  for (const d of order) {
+    const b = D[d];
+    if (!b) { lines.push(`| ${d} | — | — | — | — | — | — |`); continue; }
+    const o = b.rollup_24h.outcomes;
+    const lastErr = b.last_error_at
+      ? `${relTime(b.last_error_at, now)} ${b.last_error_message ?? ""}`.trim()
+      : "—";
+    lines.push(
+      `| ${d} | ${b.rollup_1h.runs}/${b.rollup_24h.runs} | ${b.rollup_1h.errors}/${b.rollup_24h.errors} | ${b.rollup_24h.items_processed} | ${o.verified}/${o.rejected}/${o.auto_promoted} | ${b.error_rate_24h.toFixed(3)} | ${lastErr} |`,
+    );
+  }
+
+  lines.push("");
+  lines.push("## Live");
+  for (const d of order) {
+    const b = D[d];
+    if (!b) continue;
+    lines.push(`- ${d}: ${compactLive((b.live as Record<string, unknown>) ?? {})}`);
+  }
+
+  lines.push("");
+  lines.push("## Recent (max 5 per daemon)");
+  for (const d of order) {
+    const b = D[d];
+    if (!b) continue;
+    const recent = (b.recent_runs as any[]).slice(0, 5);
+    if (recent.length === 0) { lines.push(`- ${d}: (no activity)`); continue; }
+    const parts = recent.map((r) => {
+      const p = (r.payload as Record<string, unknown>) ?? {};
+      if (r.event_type === "task_outcome") {
+        const keys = ["verified", "rejected", "auto_promoted"].filter((k) => k in p);
+        const inner = keys.map((k) => `${k[0]}:${p[k]}`).join(",");
+        return `task_outcome{${inner}}@${relTime(r.created_at, now)}`;
+      }
+      return `${r.event_type}@${relTime(r.created_at, now)}`;
+    });
+    lines.push(`- ${d}: ${parts.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}

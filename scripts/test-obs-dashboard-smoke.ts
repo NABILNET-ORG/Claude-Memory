@@ -1,4 +1,4 @@
-import { systemDashboardHandler } from "../src/tools/system_dashboard.js";
+import { systemDashboardHandler, renderDashboardMarkdown } from "../src/tools/system_dashboard.js";
 
 async function main() {
   const result = await systemDashboardHandler({});
@@ -25,5 +25,17 @@ async function main() {
     const b = (result.daemons as Record<string, any>)[d];
     console.log(`  ${d}: 24h runs=${b.rollup_24h.runs} errors=${b.rollup_24h.errors} items=${b.rollup_24h.items_processed} outcomes=${JSON.stringify(b.rollup_24h.outcomes)} err_rate=${b.error_rate_24h.toFixed(3)}`);
   }
+
+  const md = renderDashboardMarkdown(result);
+  if (typeof md !== "string" || md.length === 0) throw new Error("renderDashboardMarkdown returned empty");
+  if (!md.startsWith("# Dashboard `")) throw new Error("markdown missing header");
+  for (const d of ["sleep_learner", "curriculum_scanner", "trajectory_compactor"]) {
+    if (!md.includes(d)) throw new Error(`markdown missing daemon row: ${d}`);
+  }
+  if (!md.includes("## Live") || !md.includes("## Recent")) throw new Error("markdown missing sections");
+  console.log("ok: markdown render produced", md.split("\n").length, "lines,", md.length, "chars");
+  console.log("--- markdown preview ---");
+  console.log(md);
+  console.log("--- end preview ---");
 }
 main().catch((e) => { console.error(e); process.exit(1); });

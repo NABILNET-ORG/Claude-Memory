@@ -12,7 +12,7 @@ import { checkRuleConflicts } from "./tools/conflict.js";
 import { summarizeMemoryFile } from "./tools/summarize.js";
 import { indexImage } from "./tools/image.js";
 import { checkSystemHealth } from "./tools/health.js";
-import { systemDashboardHandler } from "./tools/system_dashboard.js";
+import { systemDashboardHandler, renderDashboardMarkdown } from "./tools/system_dashboard.js";
 import { initProject, sweepLegacyBackups, legacyBackupSummary } from "./tools/setup.js";
 import { listFrozen, freezeFile, unfreezeFile } from "./tools/policy.js";
 import { batchFreezePatterns } from "./tools/batch-freeze-patterns.js";
@@ -581,7 +581,7 @@ server.tool(
     daemon: z.enum(["sleep_learner", "curriculum_scanner", "trajectory_compactor"]).optional(),
   },
   async (args) => ({
-    content: [{ type: "text", text: JSON.stringify(await systemDashboardHandler(args), null, 2) }],
+    content: [{ type: "text", text: renderDashboardMarkdown(await systemDashboardHandler(args)) }],
   }),
 );
 
