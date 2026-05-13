@@ -15,6 +15,7 @@
 import { supabase } from "../supabase.js";
 import { currentProjectId } from "../project.js";
 import { mineClusters, type CandidateStub } from "./miner.js";
+import { emit } from "../telemetry/emit.js";
 
 const DEFAULT_INTERVAL_MS = 3_600_000;
 const DEFAULT_BATCH = 10;
@@ -175,6 +176,8 @@ export async function runMiningOnce(
 async function tick(): Promise<void> {
   if (state.running) return;
   state.running = true;
+  const __tStart = Date.now();
+  void emit({ daemon: "sleep_learner", event: "run_started" });
   try {
     const r = await runMiningOnce({
       batch: state.batch,
@@ -186,9 +189,27 @@ async function tick(): Promise<void> {
     state.lastRunDurationMs = r.duration_ms;
     state.lastRunAt = new Date().toISOString();
     state.candidatesMinedTotal += r.mined;
-  } catch {
+    void emit({
+      daemon: "sleep_learner",
+      event: "run_ended",
+      payload: {
+        mined: state.lastRunMined,
+        skipped: state.lastRunSkipped,
+        errored: state.lastRunErrored,
+        duration_ms: Date.now() - __tStart,
+      },
+    });
+  } catch (err) {
     state.lastRunErrored++;
     state.lastRunAt = new Date().toISOString();
+    void emit({
+      daemon: "sleep_learner",
+      event: "run_errored",
+      payload: {
+        error_message: err instanceof Error ? err.message : String(err),
+        duration_ms: Date.now() - __tStart,
+      },
+    });
   } finally {
     state.running = false;
   }
@@ -243,3 +264,5 @@ export function getSleepLearnerStatus(): SleepLearnerStatus {
     candidates_mined_total: state.candidatesMinedTotal,
   };
 }
+
+export const runSleepLearnerOnce = tick;
