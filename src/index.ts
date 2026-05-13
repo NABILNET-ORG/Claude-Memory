@@ -12,6 +12,7 @@ import { checkRuleConflicts } from "./tools/conflict.js";
 import { summarizeMemoryFile } from "./tools/summarize.js";
 import { indexImage } from "./tools/image.js";
 import { checkSystemHealth } from "./tools/health.js";
+import { systemDashboardHandler } from "./tools/system_dashboard.js";
 import { initProject, sweepLegacyBackups, legacyBackupSummary } from "./tools/setup.js";
 import { listFrozen, freezeFile, unfreezeFile } from "./tools/policy.js";
 import { batchFreezePatterns } from "./tools/batch-freeze-patterns.js";
@@ -569,6 +570,18 @@ server.tool(
   {},
   async () => ({
     content: [{ type: "text", text: JSON.stringify(await checkSystemHealth(), null, 2) }],
+  }),
+);
+
+server.tool(
+  "system_dashboard",
+  "Unified read API for daemon telemetry. Returns per-daemon live status (get*Status snapshot), 1h and 24h rollups (runs, errors, items_processed, outcomes={verified,rejected,auto_promoted}), 24h error_rate, last error event, and the last 20 recent run events. Backed by the append-only daemon_telemetry table (migration 016). Inputs: optional window_hours (default 24, max 168), optional daemon filter ('sleep_learner' | 'curriculum_scanner' | 'trajectory_compactor').",
+  {
+    window_hours: z.number().int().positive().max(168).optional(),
+    daemon: z.enum(["sleep_learner", "curriculum_scanner", "trajectory_compactor"]).optional(),
+  },
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await systemDashboardHandler(args), null, 2) }],
   }),
 );
 
