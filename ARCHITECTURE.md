@@ -910,3 +910,26 @@ flowchart TD
 | **v1.1.3** | **Seamless Onboarding & Version SSOT — dynamic version SSOT, batch policy hydration, smart-scout init_project** |
 | **v1.1.4** | **Architecture Guard + Automatic Session Handoff — Core 3 audit on init_project, session-end regenerates per-section diagrams, next_session_command_markdown handoff** |
 | **v2.0.0-rc1** | **Release Candidate — bundles Typed Retrieval + Strict Project Isolation (Sovereign Taxonomy on memory_chunks.metadata, GIN(jsonb_path_ops) index, match_memory_chunks p_metadata_filter, save_memory tool with category-prompting description) AND Global Knowledge Vault + Multi-IDE (reserved 'GLOBAL' project_id, dual-scope match_memory_chunks p_include_global, save_memory metadata.is_global, init_project Capabilities Header, docs/IDE-INTEGRATION.md for Cursor/Windsurf/Cline). $0 — pure pgvector + JSONB + same Ollama infra. Originally tagged as a separate milestone but folded back into rc1 — release candidate semantics, not yet a stable major.** |
+
+---
+
+## 7. Plugin Distribution
+
+`smart-claude-memory` ships as a Claude Code Plugin via `.claude-plugin/plugin.json` (added in v2.0.0). The manifest auto-wires two surfaces on install:
+
+1. **MCP server**: `mcpServers.smart-claude-memory` declares `command: "node"` with args `["${CLAUDE_PLUGIN_ROOT}/dist/index.js"]`. Claude Code's plugin loader resolves `${CLAUDE_PLUGIN_ROOT}` to the installed plugin directory at runtime. The 7 SCM env vars (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_POOLER_URL`, `OLLAMA_HOST`, `OLLAMA_EMBED_MODEL`, `MEMORY_ROOTS`, `EMBED_DIM`) pass through from the host shell, with sensible defaults on the three Ollama/embed knobs.
+
+2. **PreToolUse hook**: `hooks.PreToolUse[].hooks[]` declares a single `python "${CLAUDE_PLUGIN_ROOT}/hooks/md-policy.py"` command matching `Write|Edit|Bash`. Plugin lifecycle = hook lifecycle; uninstalling the plugin removes the hook automatically.
+
+### 7.1 First-run migration loop
+
+On a freshly installed plugin against an empty Supabase project, the first `init_project()` call:
+
+1. Runs the existing readiness checks (env, hook registration, MCP wiring, `dist/` build, Core 3 audit).
+2. Opens a fresh `pg.Client` against `SUPABASE_POOLER_URL`, calls `applyPendingMigrations()` from `src/lib/migrations.ts`. The helper diffs `scripts/*.sql` against the `schema_migrations(filename PK, sha256, applied_at)` ledger and applies pending files transactionally — one `BEGIN/COMMIT` per migration, `ROLLBACK` on any failure.
+3. Verifies that `moondream` and `nomic-embed-text` are pulled by querying `${OLLAMA_HOST}/api/tags`. Missing models surface a `partial` status with the actionable `Run: ollama pull <names>` command.
+4. Returns a top-level `migrations: { applied, skipped, total }` block alongside the existing `checks[]` array. Failures convert to `not_ready` without crashing the MCP server.
+
+### 7.2 Health: pending state + grace window
+
+The `check_system_health` derivation includes a `"pending"` state (added in v2.0.0). Daemons within a 15-minute grace window after MCP boot — and without any `run_ended` events yet — report `pending` rather than `down`. Past the grace window, behavior reverts to staleness-based derivation. `pending` ranks below `degraded` in the SEVERITY map, so `overall` is never falsely promoted to `down` on cold boot.

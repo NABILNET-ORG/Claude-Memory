@@ -269,100 +269,44 @@ Verified by [scripts/e2e-incremental-test.ts](scripts/e2e-incremental-test.ts), 
 
 ---
 
-## Getting started
+## Install (3 steps, ~5 minutes)
 
-### Prerequisites
+### 1. Install the plugin from the marketplace
 
-- Node.js 20+
-- [Ollama](https://ollama.com/) running locally, with an embedding model pulled:
-  ```bash
-  ollama pull nomic-embed-text
-  ```
-- A [Supabase](https://supabase.com/) project (free tier is fine)
+In Claude Code, open the plugin marketplace and install **smart-claude-memory** (or, while the marketplace listing is being prepared, clone this repo and `claude plugin add <path>` it locally). The plugin manifest at `.claude-plugin/plugin.json` auto-wires both the MCP server and the `md-policy.py` PreToolUse hook. **No `~/.claude.json` or `~/.claude/settings.json` edits required.**
 
-### 1. Clone and install
+### 2. Create an empty Supabase project + Ollama models
+
+- Create a free Supabase project at [supabase.com](https://supabase.com).
+- Install [Ollama](https://ollama.com/) and pull the two required models:
 
 ```bash
-git clone https://github.com/NABILNET-ORG/Claude-Memory.git
-cd Claude-Memory  # clone dir is preserved so existing Supabase project_id slug keeps working
-npm install
+ollama pull moondream
+ollama pull nomic-embed-text
 ```
 
-### 2. Configure `.env`
-
-Copy [.env.example](.env.example) to `.env` and fill it in:
+### 3. Set 3 env vars in your project's `.env`
 
 ```env
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxx
-SUPABASE_SECRET_KEY=sb_secret_xxx
-
-# Direct connection — IPv6-only on newer projects; keep for reference.
-SUPABASE_DB_URL=postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
-
-# Transaction pooler — IPv4-reachable. Required if your network has no IPv6 route.
-# Dashboard: Project Settings → Database → Connection pooler.
-SUPABASE_POOLER_URL=postgresql://postgres.<project-ref>:<password>@aws-1-<region>.pooler.supabase.com:6543/postgres
-
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_EMBED_MODEL=nomic-embed-text
-EMBED_DIM=768
-
-MEMORY_ROOTS=/abs/path/to/notes;/another/path
-CHUNK_SIZE=800
-CHUNK_OVERLAP=100
+SUPABASE_URL=https://<your-project-ref>.supabase.co
+SUPABASE_SECRET_KEY=<service-role-key>
+SUPABASE_POOLER_URL=postgres://postgres:<password>@<pooler-host>:6543/postgres
 ```
 
-> **Why two connection strings?** Supabase's `db.<ref>.supabase.co` endpoint is **IPv6-only** on projects created after early 2024. If your network doesn't route public IPv6 (most home/office Windows boxes don't), direct connects fail with `ENETUNREACH`. The **transaction pooler** at `aws-1-<region>.pooler.supabase.com:6543` is IPv4-reachable and is what `scripts/apply-schema.ts` uses by preference.
+Then call `init_project()` from Claude Code. The plugin **auto-applies all 18 schema migrations** to your empty DB on the first call, verifies your Ollama models are pulled, and reports `overall: pending → healthy` within a few minutes. Zero manual `npm run schema`, zero hand-edited settings.
 
-### 3. Apply the schema
+### Optional env vars
 
-Migrations are cumulative and idempotent. Run them in order:
+| Name | Default | Purpose |
+|---|---|---|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `EMBED_DIM` | `768` | Embedding vector dimension |
+| `MEMORY_ROOTS` | (empty) | Semicolon-separated folders to sync |
 
-```bash
-npm run schema                                       # 001_schema.sql — base table + HNSW index + base RPCs
-npm run schema -- 002_multi_project.sql              # project_id column + per-project isolation
-npm run schema -- 003_file_hash.sql                  # file_hash column for incremental sync
-npm run schema -- 004_backlog_frozen.sql             # cloud_backlog + frozen_patterns tables
-npm run schema -- 005_archive_backlog.sql            # archive_backlog history table
-npm run schema -- 006_security_hardening.sql         # RLS deny-all, service-role-only access
-npm run schema -- 007_metadata_typed_retrieval.sql   # GIN(metadata jsonb_path_ops) + typed-filter match RPC
-npm run schema -- 008_global_scope.sql               # 'GLOBAL' project_id + 6-arg dual-scope match RPC
-npm run schema -- 009_fix_rpc_dual_scope.sql         # IN-form WHERE planner fix for dual-scope (v2.0.0-rc1 hotfix)
-```
+> **Why a pooler URL?** Supabase's `db.<ref>.supabase.co` endpoint is **IPv6-only** on projects created after early 2024. If your network doesn't route public IPv6 (most home/office Windows boxes don't), direct connects fail with `ENETUNREACH`. The **transaction pooler** at `aws-1-<region>.pooler.supabase.com:6543` is IPv4-reachable and is what the auto-migration loop uses.
 
-Smoke / verify scripts (`006_smoke.sql`, `006_verify.sql`, `verify-007.ts`, `smoke-008.ts`, `verify-008.ts`) live alongside the migrations and are optional — run them only when validating an upgrade end-to-end.
-
-Or paste the SQL manually in [Supabase SQL Editor](https://supabase.com/dashboard): [scripts/001_schema.sql](scripts/001_schema.sql) → [scripts/002_multi_project.sql](scripts/002_multi_project.sql) → [scripts/003_file_hash.sql](scripts/003_file_hash.sql) → [scripts/004_backlog_frozen.sql](scripts/004_backlog_frozen.sql) → [scripts/005_archive_backlog.sql](scripts/005_archive_backlog.sql) → [scripts/006_security_hardening.sql](scripts/006_security_hardening.sql) → [scripts/007_metadata_typed_retrieval.sql](scripts/007_metadata_typed_retrieval.sql) → [scripts/008_global_scope.sql](scripts/008_global_scope.sql) → [scripts/009_fix_rpc_dual_scope.sql](scripts/009_fix_rpc_dual_scope.sql).
-
-### 4. Build
-
-```bash
-npm run build
-```
-
-### 5. Register with Claude Code
-
-**User scope** (available in every project you open) — add to `~/.claude.json`:
-
-```json
-{
-  "mcpServers": {
-    "smart-claude-memory": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["/abs/path/to/Claude-Memory/dist/index.js"],
-      "env": {}
-    }
-  }
-}
-```
-
-**Project scope** (only this repo) — create `.mcp.json` in the target project's root with the same block.
-
-Restart Claude Code. Run `/mcp`. You should see `smart-claude-memory` connected with three tools.
-
-### 6. Index your notes
+### First-run index your notes
 
 From a Claude Code session inside the project whose notes you want to offload:
 
