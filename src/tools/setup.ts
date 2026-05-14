@@ -8,9 +8,15 @@ import { resolve, dirname, basename, relative, join, isAbsolute } from "node:pat
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { glob } from "glob";
+import { Client } from "pg";
 import { loadFrozenCache } from "./frozen-cache.js";
 import { currentProjectId, slugify } from "../project.js";
 import { GLOBAL_PROJECT_ID } from "./save.js";
+import {
+  applyPendingMigrations,
+  listPendingMigrations,
+  loadMigrationFiles,
+} from "../lib/migrations.js";
 import {
   ensureSovereignConstitution,
   upgradeConstitutionBlock,
@@ -26,7 +32,7 @@ import {
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const mcpEntryPoint = resolve(packageRoot, "dist", "index.js").replace(/\\/g, "/");
 
-type CheckStatus = "ok" | "warn" | "missing";
+type CheckStatus = "ok" | "warn" | "missing" | "partial" | "not_ready";
 
 type Check = {
   name: string;
@@ -316,6 +322,81 @@ const CAPABILITIES_HINTS: readonly string[] = [
   "For universal patterns (MUST pass Sovereign Vetting + Cross-Project Test): save_memory({ content, metadata: { type: 'PATTERN', is_global: true, global_rationale: '<why this is a universal truth>' } })",
 ] as const;
 
+type MigrationsCheck = {
+  name: "migrations";
+  status: "ok" | "partial" | "not_ready";
+  detail: string;
+};
+type MigrationsBlock = { applied: number; skipped: number; total: number } | null;
+
+/**
+ * BYO-Supabase bootstrap: open a fresh pg.Client against SUPABASE_POOLER_URL
+ * (or SUPABASE_DB_URL fallback) and apply any pending migrations idempotently.
+ *
+ * Failure modes (DB unreachable, missing env, migration error) ALL collapse to
+ * a single `{ status: "not_ready" }` Check. Exceptions never propagate — the
+ * MCP server must not crash on first-call DB issues.
+ */
+async function runMigrationsCheck(): Promise<{
+  check: MigrationsCheck;
+  block: MigrationsBlock;
+}> {
+  const cs = process.env.SUPABASE_POOLER_URL || process.env.SUPABASE_DB_URL;
+  if (!cs) {
+    return {
+      check: {
+        name: "migrations",
+        status: "not_ready",
+        detail: "SUPABASE_POOLER_URL (or SUPABASE_DB_URL) not set; cannot apply migrations",
+      },
+      block: null,
+    };
+  }
+  const client = new Client({
+    connectionString: cs,
+    ssl: { rejectUnauthorized: false },
+  });
+  const total = loadMigrationFiles().length;
+  try {
+    await client.connect();
+    const pending = await listPendingMigrations(client);
+    if (pending.length === 0) {
+      return {
+        check: {
+          name: "migrations",
+          status: "ok",
+          detail: "schema up to date (0 pending)",
+        },
+        block: { applied: 0, skipped: total, total },
+      };
+    }
+    const result = await applyPendingMigrations(client);
+    return {
+      check: {
+        name: "migrations",
+        status: "ok",
+        detail: `applied ${result.applied} pending migration(s)`,
+      },
+      block: { applied: result.applied, skipped: result.skipped, total: result.total },
+    };
+  } catch (err) {
+    return {
+      check: {
+        name: "migrations",
+        status: "not_ready",
+        detail: `migration apply failed: ${(err as Error).message}`,
+      },
+      block: null,
+    };
+  } finally {
+    try {
+      await client.end();
+    } catch {
+      /* swallow */
+    }
+  }
+}
+
 export async function initProject(args: {
   workspace?: string;
   sweep_legacy?: "dry" | "commit" | "off";
@@ -333,6 +414,7 @@ export async function initProject(args: {
   capabilities: Capabilities;
   sovereign_constitution: SovereignConstitutionResult;
   bloat_audit: BloatAudit;
+  migrations: MigrationsBlock;
   recommendations?: Array<HydrateRecommendation | SovereignPurgeRecommendation>;
 }> {
   const ws = resolve(args.workspace ?? process.cwd());
@@ -466,9 +548,20 @@ export async function initProject(args: {
     fix: core3.required_action === "delegate_audit" ? core3.directive : undefined,
   });
 
-  const anyMissing = checks.some((c) => c.status === "missing");
-  const anyWarn = checks.some((c) => c.status === "warn");
-  const overall: "ready" | "partial" | "not_ready" = anyMissing
+  // 8. Migrations — auto-apply pending SQL migrations on every init so a fresh
+  // BYO-Supabase database bootstraps transparently on first call. All paths
+  // (missing connection string, unreachable DB, mid-apply failure) collapse
+  // to `{ status: "not_ready" }` — never throws.
+  const migrationsResult = await runMigrationsCheck();
+  checks.push(migrationsResult.check);
+
+  const anyNotReady = checks.some(
+    (c) => c.status === "missing" || c.status === "not_ready",
+  );
+  const anyWarn = checks.some(
+    (c) => c.status === "warn" || c.status === "partial",
+  );
+  const overall: "ready" | "partial" | "not_ready" = anyNotReady
     ? "not_ready"
     : anyWarn
       ? "partial"
@@ -563,6 +656,7 @@ export async function initProject(args: {
     capabilities: Capabilities;
     sovereign_constitution: SovereignConstitutionResult;
     bloat_audit: BloatAudit;
+    migrations: MigrationsBlock;
     recommendations?: Array<HydrateRecommendation | SovereignPurgeRecommendation>;
   } = {
     action: "init_project",
@@ -577,6 +671,7 @@ export async function initProject(args: {
     capabilities,
     sovereign_constitution: sovereignConstitution,
     bloat_audit: bloatAudit,
+    migrations: migrationsResult.block,
   };
   if (recommendations.length > 0) {
     result.recommendations = recommendations;
