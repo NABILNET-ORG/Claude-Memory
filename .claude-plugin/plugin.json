@@ -1,0 +1,25 @@
+{
+  "name": "smart-claude-memory",
+  "version": "2.0.0-rc1",
+  "description": "Sovereign memory protocol for Claude Code — typed, dual-scope, observability-grade. Bring your own empty Supabase project; the plugin handles the rest.",
+  "author": {
+    "name": "NABILNET.AI",
+    "url": "https://nabilnet.ai"
+  },
+  "homepage": "https://nabilnet.ai",
+  "mcpServers": {
+    "smart-claude-memory": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "env": {
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_SECRET_KEY": "${SUPABASE_SECRET_KEY}",
+        "SUPABASE_POOLER_URL": "${SUPABASE_POOLER_URL}",
+        "OLLAMA_HOST": "${OLLAMA_HOST:-http://localhost:11434}",
+        "OLLAMA_EMBED_MODEL": "${OLLAMA_EMBED_MODEL:-nomic-embed-text}",
+        "MEMORY_ROOTS": "${MEMORY_ROOTS}",
+        "EMBED_DIM": "${EMBED_DIM:-768}"
+      }
+    }
+  }
+}
