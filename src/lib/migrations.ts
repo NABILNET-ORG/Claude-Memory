@@ -55,15 +55,13 @@ export interface ApplyResult {
  * Scan MIGRATIONS_DIR for files matching /^0\d{2}_.+\.sql$/, lex-sorted.
  * Reads each file body and computes its sha256 (hex). Pure FS — no DB.
  *
- * Excludes companion artefacts that share the 0NN prefix but are NOT
- * migrations (e.g. `006_smoke.sql`, `006_verify.sql`). The regex itself
- * is permissive on these — we filter them explicitly below.
+ * Companion test fixtures (smoke/verify scripts) live under
+ * `tests/sql_fixtures/`, not in scripts/, so this loader sees only real
+ * numbered migrations without an explicit denylist.
  */
 export function loadMigrationFiles(): MigrationFile[] {
-  const excluded = new Set(["006_smoke.sql", "006_verify.sql"]);
-  const entries = readdirSync(MIGRATIONS_DIR);
-  const files = entries
-    .filter((name) => MIGRATION_RE.test(name) && !excluded.has(name))
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((name) => MIGRATION_RE.test(name))
     .sort();
 
   return files.map((filename) => {

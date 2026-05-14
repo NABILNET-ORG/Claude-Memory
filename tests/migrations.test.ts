@@ -69,12 +69,13 @@ describe("loadMigrationFiles — pure FS helper (no DB)", () => {
     }
   });
 
-  test("excludes non-migration scripts (apply-schema.ts, smoke-*.ts, 006_smoke.sql)", () => {
+  test("excludes non-SQL helpers that share the scripts/ directory", () => {
+    // Smoke/verify fixtures now live under tests/sql_fixtures/ and cannot
+    // appear here. The remaining guard is that TS helpers in scripts/
+    // (e.g. apply-schema.ts) never match the migration regex.
     const files = loadMigrationFiles();
     const names = new Set(files.map((f) => f.filename));
     assert.ok(!names.has("apply-schema.ts"));
-    assert.ok(!names.has("006_smoke.sql"), "smoke variants must NOT match the migration regex once filtered");
-    assert.ok(!names.has("006_verify.sql"));
   });
 
   test("includes the canonical 001_schema.sql entry point", () => {
