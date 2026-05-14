@@ -14,7 +14,7 @@
     "start": "node dist/index.js",
     "schema": "tsx scripts/apply-schema.ts",
     "backup": "tsx scripts/backup-and-remove.ts",
-    "test": "node --import tsx --experimental-test-module-mocks --no-warnings --test tests/trajectory-stripper.test.ts tests/trajectory-summarizer.test.ts tests/trajectory-daemon.test.ts tests/health.test.ts"
+    "test": "node --import tsx --experimental-test-module-mocks --no-warnings --test tests/trajectory-stripper.test.ts tests/trajectory-summarizer.test.ts tests/trajectory-daemon.test.ts tests/health.test.ts tests/migrations.test.ts"
   },
   "engines": {
     "node": ">=20"
@@ -25,6 +25,7 @@
     "dotenv": "^17.4.2",
     "glob": "^13.0.6",
     "ollama": "^0.6.3",
+    "pg": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -32,7 +33,6 @@
     "@types/node": "^25.6.0",
     "@types/pg": "^8.20.0",
     "archiver": "^7.0.1",
-    "pg": "^8.20.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }
