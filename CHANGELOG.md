@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.0.1] — 2026-05-14
+
+**v2.0.1 — Tech-Debt & Operational-Hygiene Patch**
+
+Pays off two pieces of debt carried out of v2.0.0 so the BYO-Supabase boot path becomes mathematically re-runnable. Zero schema-shape change, zero new features, zero new tool surface.
+
+### Fixed
+- **Migrations are now strictly idempotent (Backlog #131).** Session 26 read-only audit inventoried 6 of 18 migrations carrying non-idempotent statements. Patched 12 lines across 6 files: 10 `CREATE FUNCTION` → `CREATE OR REPLACE FUNCTION` in `010_agent_skills.sql`, `011_trajectory_compaction.sql`, `012_sleep_learning.sql`, `015_curriculum_tasks.sql`; and bare `ON CONFLICT DO NOTHING` added to the lone seed `INSERT INTO archive_backlog` in `005_archive_backlog.sql` and `014_workflow_checkpoints.sql`. Every other DDL class (extensions, tables, indexes, schemas, types, policies, triggers, ADD COLUMN, ADD CONSTRAINT) was already guarded.
+- **Migration ledger denylist removed (Backlog #130).** `006_smoke.sql` and `006_verify.sql` were companion validation scripts that shared `scripts/` with real numbered migrations, forcing `loadMigrationFiles()` to maintain an explicit `excluded` Set. Both fixtures now live under `tests/sql_fixtures/`; `loadMigrationFiles()` collapsed to a single regex filter. The "every `0NN_*.sql` in `scripts/` is a migration" contract is now structural, not denylist-enforced.
+
+### Added
+- Opt-in idempotency proof test in `tests/migrations.test.ts`. Gated on `RUN_IDEMPOTENCY_TEST=1` (destructive — truncates `public.schema_migrations`, re-applies all 18 migrations against the already-migrated DB, asserts `applied === 18` and `skipped === 0`, then UPSERT-restores the snapshot in a `finally` block so the dev ledger never ends half-broken). `search_path` pinned to `public, extensions` so pgvector operator classes (`vector_cosine_ops` on `hnsw`) resolve under the pooler role.
+
+### Notes
+- `schema_migrations.sha256` values for the 6 patched files diverge from what is recorded on already-applied dev DBs. This is silent and harmless: `applyPendingMigrations()` acts on filename presence only — applied rows are not re-validated — and fresh BYO-Supabase installs ship with the new hashes.
+- The MCP server's tool surface is unchanged at 39 tools.
+- The 18 schema migrations remain at version 18; only their re-runnability has improved.
+
 ## [2.0.0] — 2026-05-14
 
 **v2.0.0 GA — Plugin Marketplace Release**
