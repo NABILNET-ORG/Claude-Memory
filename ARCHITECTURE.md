@@ -544,16 +544,18 @@ The daemon proposes nothing. The Orchestrator executes everything. The promotion
 
 ### 4.8 Observability & Telemetry (Agentic OS 2026 — Mission 6)
 
-The three background daemons (`sleep_learner`, `curriculum_scanner`, `trajectory_compactor`) persist every lifecycle event and every orchestrator-initiated state mutation to an append-only `daemon_telemetry` table (migration `scripts/016_daemon_telemetry.sql`, service-role grants in `scripts/017`). The persisted history is consumed by two decoupled read paths — the `system_dashboard` MCP tool (24h rollups, compressed Markdown output) and `check_system_health`'s derived per-daemon status (1h window, env-driven thresholds). In-memory `get*Status()` snapshots remain the fast path for live state; the table is the durable source of truth for rates, staleness, and overall health.
+The four background daemons (`sleep_learner`, `curriculum_scanner`, `trajectory_compactor`, `telemetry_pruner`) persist every lifecycle event and every orchestrator-initiated state mutation to an append-only `daemon_telemetry` table (migration `scripts/016_daemon_telemetry.sql`, service-role grants in `scripts/017`, daemon-enum extension to admit the pruner in `scripts/018_telemetry_retention.sql`). The persisted history is consumed by two decoupled read paths — the `system_dashboard` MCP tool (24h rollups, compressed Markdown output) and `check_system_health`'s derived per-daemon status (1h window, env-driven thresholds). In-memory `get*Status()` snapshots remain the fast path for live state; the table is the durable source of truth for rates, staleness, and overall health.
 
 **Event taxonomy** (`daemon_telemetry.event_type` CHECK constraint):
 
 | Event | Source | Payload |
 |---|---|---|
 | `run_started` | daemon tick top, fire-and-forget | none |
-| `run_ended` | daemon tick success path | `{compacted\|mined\|queued, skipped, errored, duration_ms}` (per daemon) |
+| `run_ended` | daemon tick success path | `{compacted\|mined\|queued\|deleted, skipped, errored, duration_ms}` (per daemon — `telemetry_pruner` adds `retention_days`) |
 | `run_errored` | daemon tick catch | `{error_message, duration_ms}` |
 | `task_outcome` | orchestrator state mutations (`recordVerified` / `recordRejected` / auto-promote) | `{verified\|rejected\|auto_promoted: 1}` delta |
+
+**The 4th daemon — `telemetry_pruner`** (Backlog #124, `src/telemetry/pruner.ts`). Rolling DELETE: every `TELEMETRY_PRUNER_INTERVAL_MS` (default 6h ⇒ 4 ticks/day, deliberately tighter than the 1h health window so cold-start never reads as `down`), removes rows from `daemon_telemetry` with `created_at` older than `TELEMETRY_PRUNER_RETENTION_DAYS` (default 30). The pruner emits its own telemetry, so its activity is observable via `system_dashboard` and `check_system_health` exactly like the other three daemons. Hard DELETE (not roll-up) is intentional: the read paths cap at 24h, so anything >30d is unobservable by definition — a roll-up table would have zero downstream consumer.
 
 Daemon ticks and orchestrator state mutations are intentionally separated by event type. `run_ended` is reserved strictly for tick completion; mixing orchestrator-initiated mutations into the same enum would poison the daemon run-rate rollups.
 
@@ -567,15 +569,18 @@ flowchart LR
     SL[sleep_learner.tick]
     CS[curriculum_scanner.tick]
     TC[trajectory_compactor.tick]
+    TP[telemetry_pruner.tick]
     RV[recordVerified/Rejected]
   end
 
   SL -->|void emit| E[emit fire-and-forget]
   CS -->|void emit| E
   TC -->|void emit| E
+  TP -->|void emit| E
   RV -->|task_outcome delta| E
 
   E -->|insert| T[(daemon_telemetry)]
+  TP -.->|DELETE older than retention| T
 
   T -.->|read 24h, 2000-row cap| SD[system_dashboard handler]
   T -.->|read 1h, 1000-row cap| CH[check_system_health]
@@ -611,6 +616,8 @@ flowchart LR
 | `OBS_ERR_RATE_DEGRADED_DEFAULT` | `0.20` | Per-daemon → `degraded` when 1h error rate strictly exceeds this. |
 | `OBS_ERR_RATE_DOWN_DEFAULT` | `0.50` | Per-daemon → `down` when 1h error rate strictly exceeds this. |
 | `OBS_STALENESS_MULTIPLIER_DEFAULT` | `2.0` | Per-daemon → `down` when `now - last_run_ended > interval_ms × multiplier`. |
+| `TELEMETRY_PRUNER_INTERVAL_MS` | `21_600_000` (6h) | `telemetry_pruner` tick cadence. |
+| `TELEMETRY_PRUNER_RETENTION_DAYS` | `30` | `telemetry_pruner` deletes rows with `created_at < now() - retention_days`. |
 
 Unparseable or missing env values fall back to the defaults; the helper never throws.
 

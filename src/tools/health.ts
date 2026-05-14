@@ -6,6 +6,7 @@ import { currentProjectId } from "../project.js";
 import { getCompactorStatus } from "../trajectory/daemon.js";
 import { getSleepLearnerStatus } from "../sleep/daemon.js";
 import { getCurriculumStatus } from "../curriculum/daemon.js";
+import { getTelemetryPrunerStatus } from "../telemetry/pruner.js";
 import { VERSION } from "../version.js";
 
 // Per-daemon health derivation thresholds. Names use the user-mandated
@@ -145,6 +146,7 @@ type HealthReport = {
   trajectory_compactor: ReturnType<typeof getCompactorStatus> & { derived: DerivedBlock };
   sleep_learner: ReturnType<typeof getSleepLearnerStatus> & { derived: DerivedBlock };
   curriculum_scanner: ReturnType<typeof getCurriculumStatus> & { derived: DerivedBlock };
+  telemetry_pruner: ReturnType<typeof getTelemetryPrunerStatus> & { derived: DerivedBlock };
   policy_enforcement: {
     cache_path: string;
     cache_present: boolean;
@@ -312,6 +314,7 @@ export async function checkSystemHealth(): Promise<HealthReport> {
     sleep_learner: [],
     curriculum_scanner: [],
     trajectory_compactor: [],
+    telemetry_pruner: [],
   };
   try {
     const { data: telemetryRows, error: telemetryErr } = await supabase
@@ -342,6 +345,7 @@ export async function checkSystemHealth(): Promise<HealthReport> {
   const sleepSnap = getSleepLearnerStatus();
   const currSnap = getCurriculumStatus();
   const trajSnap = getCompactorStatus();
+  const prunerSnap = getTelemetryPrunerStatus();
 
   const sleepDerived = deriveDaemonStatus(
     byDaemon.sleep_learner,
@@ -361,6 +365,12 @@ export async function checkSystemHealth(): Promise<HealthReport> {
     trajSnap.enabled,
     trajSnap.last_run_at ?? null,
   );
+  const prunerDerived = deriveDaemonStatus(
+    byDaemon.telemetry_pruner,
+    prunerSnap.interval_ms,
+    prunerSnap.enabled,
+    prunerSnap.last_run_at ?? null,
+  );
 
   // Worst-of rollup: daemon derivation can only WORSEN overall, never improve it.
   // Preserves any degraded/down already set by supabase/ollama checks above.
@@ -375,6 +385,7 @@ export async function checkSystemHealth(): Promise<HealthReport> {
     sleepDerived.status,
     currDerived.status,
     trajDerived.status,
+    prunerDerived.status,
   ];
   const worstDaemon = daemonStatuses.reduce<DerivedStatus>(
     (a, b) => (SEVERITY[b] > SEVERITY[a] ? b : a),
@@ -407,6 +418,7 @@ export async function checkSystemHealth(): Promise<HealthReport> {
     trajectory_compactor: { ...trajSnap, derived: trajDerived },
     sleep_learner: { ...sleepSnap, derived: sleepDerived },
     curriculum_scanner: { ...currSnap, derived: currDerived },
+    telemetry_pruner: { ...prunerSnap, derived: prunerDerived },
     policy_enforcement: policy,
     orchestrator,
     summary,

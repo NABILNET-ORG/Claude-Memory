@@ -65,6 +65,7 @@ import {
 import { startCompactor } from "./trajectory/daemon.js";
 import { startSleepLearner } from "./sleep/daemon.js";
 import { startCurriculumDaemon } from "./curriculum/daemon.js";
+import { startTelemetryPruner } from "./telemetry/pruner.js";
 import { ensureSchema, startKeepAlive, writeFrozenPatternsCache } from "./supabase.js";
 import { currentProjectId } from "./project.js";
 import { VERSION } from "./version.js";
@@ -110,6 +111,12 @@ startSleepLearner();
 // curriculum_tasks rows. Contains ZERO generative AI — Boundary Invariant #1
 // (ARCHITECTURE.md §4.7). .unref()'d so it never blocks process exit.
 startCurriculumDaemon();
+
+// Start the telemetry retention pruner (Backlog #124 / ARCHITECTURE.md §4.8).
+// Rolling DELETE: every TELEMETRY_PRUNER_INTERVAL_MS, prunes daemon_telemetry
+// rows older than TELEMETRY_PRUNER_RETENTION_DAYS. .unref()'d so it never
+// blocks process exit.
+startTelemetryPruner();
 
 // Export the current frozen_features snapshot to the shared cache file so
 // hooks/md-policy.py can read it without hitting Supabase per tool call.
