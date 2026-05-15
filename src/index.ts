@@ -20,6 +20,7 @@ import { refactorGuard } from "./tools/refactor.js";
 import { analyzeRegression } from "./tools/verification.js";
 import { delegateTask, syncArtefacts } from "./tools/orchestrator.js";
 import { upgradeConstitutionBlock } from "./tools/sovereign-constitution.js";
+import { metadataFilterSchema } from "./tools/shared-schemas.js";
 import {
   packageSkill,
   packageSkillInputShape,
@@ -198,12 +199,7 @@ server.tool(
     limit: z.number().int().positive().max(20).optional(),
     min_similarity: z.number().min(0).max(1).optional(),
     project_id: projectIdSchema,
-    metadata_filter: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe(
-        "JSONB containment filter against memory_chunks.metadata. Common shape: {type:'DECISION'|'PATTERN'|'ERROR'|'LOG'} or {type:'ERROR', status:'fixed'}. Matches Postgres `@>`.",
-      ),
+    metadata_filter: metadataFilterSchema,
     include_global: z
       .boolean()
       .optional()
