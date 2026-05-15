@@ -1,8 +1,8 @@
-# Smart Claude Memory — System Architecture (v2.0.0-rc1)
+# Smart Claude Memory — System Architecture (v2.1.0)
 
 **Developer:** [NABILNET.AI](https://nabilnet.ai)
 
-> **Stable baseline:** v2.0.0-rc1 — bundles Architecture Guard + Automatic Session Handoff, the Typed Retrieval layer (Sovereign Taxonomy on `memory_chunks.metadata`, GIN-indexed metadata filter, strict project_id-first isolation), and the Global Knowledge Vault + Multi-IDE layer (reserved `'GLOBAL'` project_id with dual-scope retrieval, `init_project` Capabilities Header, `docs/IDE-INTEGRATION.md` for Cursor / Windsurf / Cline).
+> **Stable baseline:** v2.1.0 — bundles Architecture Guard + Automatic Session Handoff, the Typed Retrieval layer (Sovereign Taxonomy on `memory_chunks.metadata`, GIN-indexed metadata filter, strict project_id-first isolation), the Global Knowledge Vault + Multi-IDE layer (reserved `'GLOBAL'` project_id with dual-scope retrieval, `init_project` Capabilities Header, `docs/IDE-INTEGRATION.md` for Cursor / Windsurf / Cline), and the GLOBAL Vault UX layer (browse-only `list_global_patterns` MCP tool with tiered output, full JSONB `metadata_filter`, offset/limit pagination, zero embedding cost; `init_project.capabilities.global_scope` extended with `browse_tool` + `browse_args`).
 > This document is the single source of truth for the system's structure and control flow. The marker-bounded Mermaid block in §5 is refreshed automatically by `sync_artefacts` after every worker success; the other diagrams are hand-maintained.
 
 ![Smart Claude Memory v2.1.0 Master Schematic](docs/assets/schematic.png)
@@ -185,6 +185,78 @@ flowchart LR
 ```
 
 The dual-scope union does NOT relax tenancy: every row remains tagged with its origin `project_id`, so caller code can still distinguish "from this project" vs "from the global vault". `'GLOBAL'` is reserved — `init_project` slugifies the cwd basename, which never produces this literal, so no project can accidentally write to the vault by being in a directory called "GLOBAL"; the only entry is the explicit `is_global: true` flag.
+
+### 4.3.1 GLOBAL Vault UX (v2.1.0 — `list_global_patterns`)
+
+The Global Vault is **discoverable** as well as searchable. `search_memory({ include_global: true })` is the semantic side ("find by meaning"); v2.1.0 adds **`list_global_patterns`** for the deterministic side ("enumerate by attribute"). Two tools, one vault, crisp boundary: the browse path never calls Ollama, never spends embedding budget.
+
+**Assumptions (locked).**
+
+- Tool shape: `list_global_patterns({ metadata_filter?, limit?=10, offset?=0, include_content?=false })`. Browse-only — no `query` arg.
+- Output is **tiered**: default returns `{ id, type, global_rationale, created_at, content_preview ≤120 chars, file_origin }`. `include_content:true` inflates each row with the full `content` field. Honors the [Tokens are Currency] imperative.
+- `metadata_filter` shape **matches `search_memory`** (JSONB containment via `@>`, reuses the existing GIN(`jsonb_path_ops`) index on `memory_chunks.metadata`). Zero new API surface, zero new index.
+- Scope is hardcoded to `project_id = 'GLOBAL'`. Any caller-supplied `project_id` is ignored — the name *is* the scope.
+- Sort: `ORDER BY created_at DESC, id DESC` (id as stable tiebreaker). Offset/limit pagination; `limit` clamped to 50 (mirrors `search_memory.limit.maximum`).
+
+**Acceptance criteria.**
+
+1. `list_global_patterns()` returns the 10 newest GLOBAL chunks, preview-only.
+2. `list_global_patterns({ metadata_filter: { type: 'PATTERN' } })` filters via the existing GIN index.
+3. `list_global_patterns({ metadata_filter: { type: 'ERROR', status: 'fixed' } })` composes multi-key filters via the same index.
+4. `include_content:true` inflates each row with full content; otherwise `content` is omitted from the response.
+5. `limit:100` is clamped to 50.
+6. Empty result returns `{ project_id: 'GLOBAL', count: 0, results: [], summary: 'GLOBAL vault is empty.' }`.
+7. `init_project.capabilities.protocol === 'smart-claude-memory/v2.1.0'`.
+8. `init_project.capabilities.global_scope` is extended to `{ available, project_id, browse_tool: 'list_global_patterns', browse_args: ['metadata_filter','limit','offset','include_content'] }`.
+9. `capabilities.context_gathering_hints` contains a new entry exactly matching `"Browse GLOBAL: list_global_patterns({ metadata_filter: { type: 'PATTERN' }, limit: 10 })"` (mirroring the style of existing hints like `"On boot: search_memory({ query: 'Active Backlog' })"`).
+10. README + ARCHITECTURE document the tool; the Sovereign Memory Protocol block in CLAUDE.md is unchanged (read-only UX, no rule shift).
+
+**[TECH_STACK] addendum.**
+
+- New tool handler: `src/tools/listGlobalPatterns.ts` (sibling to `list_frozen`, `list_curriculum_tasks`, `list_skill_candidates`). Zod arg schema co-located. Registered in the existing MCP tool dispatch table.
+- DB read: pure SQL — `SELECT id, content, metadata, file_origin, created_at FROM memory_chunks WHERE project_id = 'GLOBAL' AND metadata @> $filter ORDER BY created_at DESC, id DESC OFFSET $offset LIMIT $limit`. Uses the existing `pg` pool and the existing GIN(`jsonb_path_ops`) index. **No Ollama call.**
+- `init_project` capabilities builder: bump the `PROTOCOL` constant to `'smart-claude-memory/v2.1.0'`; extend the `global_scope` block; append one entry to `context_gathering_hints`.
+- Docs: README (capabilities header table + tool row) and this ARCHITECTURE.md addendum. CLAUDE.md untouched.
+- **Zero new dependencies. Zero new indexes. Zero new migrations.**
+
+**[SYSTEM_FLOW] — boot discovery.**
+
+```mermaid
+flowchart LR
+  A[agent boots] --> B[init_project]
+  B --> C[capabilities builder]
+  C --> D{protocol = v2.1.0}
+  D --> E[global_scope =<br/>available, project_id,<br/>browse_tool,<br/>browse_args]
+  E --> F[context_gathering_hints<br/>+ GLOBAL browse exemplar]
+  F --> G[agent knows the tool<br/>without reading docs]
+```
+
+**[SYSTEM_FLOW] — browse call (no embedding cost).**
+
+```mermaid
+flowchart LR
+  Q[list_global_patterns<br/>metadata_filter, limit, offset,<br/>include_content] --> V[Zod validate]
+  V --> S[SELECT FROM memory_chunks<br/>WHERE project_id = 'GLOBAL'<br/>AND metadata @> filter]
+  S --> O[ORDER BY created_at DESC,<br/>id DESC<br/>OFFSET / LIMIT]
+  O --> T{include_content?}
+  T -->|false| P[preview rows<br/>id, type, global_rationale,<br/>created_at, content_preview]
+  T -->|true| FU[full rows<br/>+ content]
+  P --> R[response summary]
+  FU --> R
+```
+
+**Foundation-First commit sequence.** No entangled commits — six isolated, revertable steps:
+
+| # | Commit | Scope | Why isolated |
+|---|---|---|---|
+| 1 | `chore: bump SCM protocol constant to v2.1.0` | One-line constant + version header | Declares the protocol contract before any consumer ships against it |
+| 2 | `feat(capabilities): extend global_scope schema with browse_tool + browse_args (null)` | `init_project` capabilities builder shape only — `browse_tool` value left as `null` | Schema change visible without committing to the tool name yet; reverts cleanly if the discovery flow has issues |
+| 3 | `feat(tool): register list_global_patterns handler (stub)` | New file + Zod schema; handler returns a hardcoded empty `{ ..., summary }` | MCP wiring validated before logic exists |
+| 4 | `feat(tool): implement list_global_patterns SELECT + tiered output` | Real SQL + filter passthrough + preview/full toggle | Pure logic — no plumbing change |
+| 5 | `feat(capabilities): populate browse_tool='list_global_patterns' + new context hint` | Wire the now-real tool into capabilities; add the hint exemplar | Closes the discovery loop |
+| 6 | `docs: README + ARCHITECTURE document v2.1.0 GLOBAL Vault UX` | Pure docs | Never bundled with feature commits |
+
+Each commit ships only after `npm run build` is zero-error and the Core 3 audit (`init_project.core3.in_sync`) stays green.
 
 ### 4.4 JIT Skill Vault (Agentic OS 2026 — Mission 1, proposed)
 
@@ -938,6 +1010,7 @@ flowchart TD
 | **v1.1.3** | **Seamless Onboarding & Version SSOT — dynamic version SSOT, batch policy hydration, smart-scout init_project** |
 | **v1.1.4** | **Architecture Guard + Automatic Session Handoff — Core 3 audit on init_project, session-end regenerates per-section diagrams, next_session_command_markdown handoff** |
 | **v2.0.0-rc1** | **Release Candidate — bundles Typed Retrieval + Strict Project Isolation (Sovereign Taxonomy on memory_chunks.metadata, GIN(jsonb_path_ops) index, match_memory_chunks p_metadata_filter, save_memory tool with category-prompting description) AND Global Knowledge Vault + Multi-IDE (reserved 'GLOBAL' project_id, dual-scope match_memory_chunks p_include_global, save_memory metadata.is_global, init_project Capabilities Header, docs/IDE-INTEGRATION.md for Cursor/Windsurf/Cline). $0 — pure pgvector + JSONB + same Ollama infra. Originally tagged as a separate milestone but folded back into rc1 — release candidate semantics, not yet a stable major.** |
+| **v2.1.0** | **GLOBAL Vault UX — browse-only `list_global_patterns` MCP tool (tiered output: preview default + `include_content:true` opt-in; full JSONB `metadata_filter` matching `search_memory`; offset/limit pagination defaulting to 10 with `created_at DESC, id DESC`; pure SQL — zero embedding cost). `init_project.capabilities` extended: `global_scope` gains `browse_tool` + `browse_args`, `context_gathering_hints` gains a GLOBAL-browse exemplar, `protocol` bumped to `smart-claude-memory/v2.1.0`. Zero new dependencies, zero new indexes, zero new migrations — reuses the existing GIN(jsonb_path_ops) index and `pg` pool.** |
 
 ---
 
