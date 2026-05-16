@@ -325,7 +325,36 @@ const CAPABILITIES_HINTS: readonly string[] = [
   "After architectural choice: save_memory({ content, metadata: { type: 'DECISION' } })",
   "After bug fix: save_memory({ content, metadata: { type: 'ERROR', status: 'fixed' } })",
   "For universal patterns (MUST pass Sovereign Vetting + Cross-Project Test): save_memory({ content, metadata: { type: 'PATTERN', is_global: true, global_rationale: '<why this is a universal truth>' } })",
+  "Browse GLOBAL: list_global_patterns({ metadata_filter: { type: 'PATTERN' }, limit: 10 })",
 ] as const;
+
+/**
+ * Pure capabilities-header builder.
+ *
+ * Extracted from runInitProject so the shape contract (protocol version,
+ * global_scope, taxonomy, hints) is unit-testable in isolation — no
+ * Supabase, no Ollama, no filesystem.
+ *
+ * Reused by: runInitProject (the live boot path) and
+ * tests/capabilities.test.ts (the shape contract tests).
+ */
+export function buildCapabilities(
+  projectIdSlug: string,
+): Capabilities {
+  return {
+    protocol: "smart-claude-memory/v2.1.0",
+    project_id: projectIdSlug,
+    global_scope: {
+      available: true,
+      project_id: GLOBAL_PROJECT_ID,
+      browse_tool: "list_global_patterns",
+      browse_args: ["metadata_filter", "limit", "offset", "include_content"],
+    },
+    taxonomy: ["DECISION", "PATTERN", "ERROR", "LOG"],
+    context_gathering_hints: [...CAPABILITIES_HINTS],
+    delegate_task_threshold: ">3 files OR >100 lines raw output",
+  };
+}
 
 type MigrationsCheck = {
   name: "migrations";
@@ -704,19 +733,7 @@ export async function initProject(args: {
   // v2.0.0-rc1 Capabilities Header — surfaces the protocol contract the agent should
   // adhere to during the session: dual-scope search, GLOBAL Knowledge Vault,
   // Sovereign Taxonomy, and the delegation threshold from CLAUDE.md.
-  const capabilities: Capabilities = {
-    protocol: "smart-claude-memory/v2.1.0",
-    project_id: slugify(currentProjectId),
-    global_scope: {
-      available: true,
-      project_id: GLOBAL_PROJECT_ID,
-      browse_tool: null,
-      browse_args: [],
-    },
-    taxonomy: ["DECISION", "PATTERN", "ERROR", "LOG"],
-    context_gathering_hints: [...CAPABILITIES_HINTS],
-    delegate_task_threshold: ">3 files OR >100 lines raw output",
-  };
+  const capabilities: Capabilities = buildCapabilities(slugify(currentProjectId));
 
   const result: {
     action: "init_project";
