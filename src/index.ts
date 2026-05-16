@@ -4,6 +4,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { syncLocalMemory } from "./tools/sync.js";
 import { searchMemory } from "./tools/search.js";
+import {
+  listGlobalPatterns,
+  listGlobalPatternsInputShape,
+} from "./tools/list-global-patterns.js";
 import { saveMemory } from "./tools/save.js";
 import { manageBacklog } from "./tools/backlog.js";
 import { checkCodeHygiene } from "./tools/hygiene.js";
@@ -208,6 +212,20 @@ server.tool(
       ),
   },
   async (args) => ({ content: [{ type: "text", text: JSON.stringify(await searchMemory(args), null, 2) }] }),
+);
+
+server.tool(
+  "list_global_patterns",
+  "Browse-only enumeration of the reserved 'GLOBAL' Knowledge Vault — universal patterns / decisions / errors / logs visible to every project. Deterministic SQL read (no embedding cost). Filter via metadata_filter (same JSONB-containment shape as search_memory). Pagination: offset + limit (default 10, max 50), sorted by created_at DESC. Tiered output: default returns a content_preview (≤120 chars); pass include_content:true for the full content field. Distinct from search_memory({ include_global: true }) — that's 'find by meaning' (semantic), this is 'enumerate by attribute' (deterministic).",
+  listGlobalPatternsInputShape,
+  async (args) => ({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(await listGlobalPatterns(args), null, 2),
+      },
+    ],
+  }),
 );
 
 server.tool(
