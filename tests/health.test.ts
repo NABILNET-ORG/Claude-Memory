@@ -29,11 +29,17 @@ describe("deriveDaemonStatus — pending state (grace window)", () => {
   });
 
   test("daemon with recent run_ended events returns healthy", () => {
+    // Pin `now` to the same instant the event was created. This eliminates
+    // the sub-millisecond timing race that previously made this test flake
+    // when `intervalMs` defaults to 0 (staleThreshold=0) and `Date.now()`
+    // advanced past the toISOString-truncated event timestamp.
+    const t = Date.now();
     const result = deriveDaemonStatus({
       enabled: true,
-      events: [{ event_type: "run_ended", created_at: new Date().toISOString() }],
+      events: [{ event_type: "run_ended", created_at: new Date(t).toISOString() }],
       uptimeSec: 30 * 60,
       graceMs: 15 * 60 * 1000,
+      now: t,
     });
     assert.equal(result.status, "healthy");
   });

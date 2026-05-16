@@ -64,6 +64,8 @@ export function rollupOverall(statuses: DerivedStatus[]): DerivedStatus {
  * Input for the pure per-daemon status derivation. Testable in isolation.
  * `uptimeSec` lets callers inject `process.uptime()` so tests stay deterministic.
  * `graceMs` defaults to {@link GRACE_MS} but is overridable per-test.
+ * `now` defaults to `Date.now()` but is overridable per-test to eliminate
+ * sub-millisecond timing races between event creation and staleness comparison.
  */
 export type DeriveDaemonStatusInput = {
   enabled: boolean;
@@ -72,6 +74,7 @@ export type DeriveDaemonStatusInput = {
   intervalMs?: number;
   lastRunAtIso?: string | null;
   graceMs?: number;
+  now?: number;
 };
 
 export function deriveDaemonStatus(input: DeriveDaemonStatusInput): DerivedBlock {
@@ -82,6 +85,7 @@ export function deriveDaemonStatus(input: DeriveDaemonStatusInput): DerivedBlock
     intervalMs = 0,
     lastRunAtIso = null,
     graceMs = GRACE_MS,
+    now = Date.now(),
   } = input;
   // `enabled=false` short-circuit MUST come first — a disabled daemon
   // is out of scope for liveness and cannot be "down" or "pending".
@@ -94,7 +98,6 @@ export function deriveDaemonStatus(input: DeriveDaemonStatusInput): DerivedBlock
       last_run_ended_at: null,
     };
   }
-  const now = Date.now();
   const mostRecentRunEnded =
     rows.find((r) => r.event_type === "run_ended")?.created_at ?? null;
   const effectiveLast = lastRunAtIso ?? mostRecentRunEnded;
@@ -120,7 +123,7 @@ export function deriveDaemonStatus(input: DeriveDaemonStatusInput): DerivedBlock
       last_run_ended_at: null,
     };
   }
-  const stalenessMs = now - Date.parse(effectiveLast);
+  const stalenessMs = Math.max(0, now - Date.parse(effectiveLast));
   const staleThreshold = intervalMs * OBS_STALENESS_MULTIPLIER;
   if (stalenessMs > staleThreshold) {
     return {
