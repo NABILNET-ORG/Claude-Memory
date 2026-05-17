@@ -105,7 +105,50 @@ describe("M4 checkpoint_create handler", () => {
 });
 
 describe("M4 checkpoint_commit handler", () => {
-  // body filled in by Tasks 9–10
+  const projectId = uniqueProjectId();
+  let chunkId: number;
+  before(async () => {
+    chunkId = await insertThrowawayChunk(projectId);
+  });
+  after(async () => {
+    await cleanupProject(projectId);
+  });
+
+  test("open → committed pins source_chunk_id", async () => {
+    const opened = await checkpointCreateHandler({
+      project_id: projectId,
+      step_label: "to-commit",
+    });
+    const r = await checkpointCommitHandler({
+      project_id: projectId,
+      checkpoint_id: opened.checkpoint_id,
+      source_chunk_id: chunkId,
+    });
+    assert.equal(r.checkpoint_id, opened.checkpoint_id);
+    assert.equal(r.status, "committed");
+    assert.equal(r.source_chunk_id, chunkId);
+  });
+
+  test("re-committing an already-committed checkpoint throws [M4]", async () => {
+    const opened = await checkpointCreateHandler({
+      project_id: projectId,
+      step_label: "to-double-commit",
+    });
+    await checkpointCommitHandler({
+      project_id: projectId,
+      checkpoint_id: opened.checkpoint_id,
+      source_chunk_id: chunkId,
+    });
+    await assert.rejects(
+      () =>
+        checkpointCommitHandler({
+          project_id: projectId,
+          checkpoint_id: opened.checkpoint_id,
+          source_chunk_id: chunkId,
+        }),
+      /\[M4\]/,
+    );
+  });
 });
 
 describe("M4 checkpoint_rollback handler", () => {
