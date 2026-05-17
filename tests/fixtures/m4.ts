@@ -96,11 +96,58 @@ export async function insertThrowawayCheckpoint(
   return data.id;
 }
 
+export type ThrowawaySkillCandidateOpts = {
+  // pattern_hash defaults to a uuid-derived value so tests don't collide
+  // on the (project_id, pattern_hash) unique constraint. Pass explicitly
+  // when a test asserts on the derived target_path = `skill_candidate:${pattern_hash}`.
+  patternHash?: string;
+  state?: "mined" | "promoted" | "rejected";
+  frequency?: number;
+  successCount?: number;
+  proposedName?: string | null;
+  // ISO timestamp string. When omitted, server default `now()` is used.
+  // Use to test the staleCandidateMinAgeDays window.
+  createdAt?: string;
+};
+
+export async function insertThrowawaySkillCandidate(
+  projectId: string,
+  opts: ThrowawaySkillCandidateOpts = {},
+): Promise<number> {
+  const patternHash = opts.patternHash ?? `m5_test_${randomUUID().slice(0, 12)}`;
+  const row: Record<string, unknown> = {
+    project_id: projectId,
+    pattern_hash: patternHash,
+    source_summary_ids: [],
+    source_backlog_ids: [],
+    state: opts.state ?? "mined",
+    frequency: opts.frequency ?? 1,
+    success_count: opts.successCount ?? 0,
+    proposed_name: opts.proposedName ?? `__m5_test_${patternHash.slice(-8)}`,
+  };
+  if (opts.createdAt !== undefined) {
+    row.created_at = opts.createdAt;
+  }
+  const { data, error } = await supabase
+    .from("skill_candidates")
+    .insert(row)
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `insertThrowawaySkillCandidate failed: ${error?.message ?? "no row returned"}`,
+    );
+  }
+  return data.id;
+}
+
 export async function cleanupProject(projectId: string): Promise<void> {
   // Order matters: curriculum_tasks first (FKs to workflow_checkpoints via
-  // linked_checkpoint_id), then workflow_checkpoints (FKs to memory_chunks
+  // linked_checkpoint_id AND skill_candidates via linked_candidate_id),
+  // then skill_candidates, then workflow_checkpoints (FKs to memory_chunks
   // via source_chunk_id), then cloud_backlog, then memory_chunks.
   await supabase.from("curriculum_tasks").delete().eq("project_id", projectId);
+  await supabase.from("skill_candidates").delete().eq("project_id", projectId);
   await supabase.from("workflow_checkpoints").delete().eq("project_id", projectId);
   await supabase.from("cloud_backlog").delete().eq("project_id", projectId);
   await supabase.from("memory_chunks").delete().eq("project_id", projectId);
