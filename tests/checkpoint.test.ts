@@ -219,5 +219,82 @@ describe("M4 checkpoint_rollback handler", () => {
 });
 
 describe("M4 checkpoint_list handler", () => {
-  // body filled in by Tasks 13–15
+  const projectId = uniqueProjectId();
+  const otherProjectId = uniqueProjectId();
+  after(async () => {
+    await cleanupProject(projectId);
+    await cleanupProject(otherProjectId);
+  });
+
+  test("returns only rows scoped to the given project_id", async () => {
+    await checkpointCreateHandler({ project_id: projectId, step_label: "mine-1" });
+    await checkpointCreateHandler({ project_id: projectId, step_label: "mine-2" });
+    await checkpointCreateHandler({ project_id: otherProjectId, step_label: "other" });
+
+    const mine = await checkpointListHandler({ project_id: projectId });
+    assert.equal(mine.count, 2);
+    assert.ok(mine.checkpoints.every((r) => r.project_id === projectId));
+
+    const other = await checkpointListHandler({ project_id: otherProjectId });
+    assert.equal(other.count, 1);
+    assert.equal(other.checkpoints[0].project_id, otherProjectId);
+  });
+
+  test("status filter narrows results", async () => {
+    const filterProjectId = uniqueProjectId();
+    try {
+      const chunkId = await insertThrowawayChunk(filterProjectId);
+      const a = await checkpointCreateHandler({
+        project_id: filterProjectId,
+        step_label: "stay-open",
+      });
+      const b = await checkpointCreateHandler({
+        project_id: filterProjectId,
+        step_label: "to-commit",
+      });
+      await checkpointCommitHandler({
+        project_id: filterProjectId,
+        checkpoint_id: b.checkpoint_id,
+        source_chunk_id: chunkId,
+      });
+
+      const openOnly = await checkpointListHandler({
+        project_id: filterProjectId,
+        status: "open",
+      });
+      const committedOnly = await checkpointListHandler({
+        project_id: filterProjectId,
+        status: "committed",
+      });
+      assert.equal(openOnly.count, 1);
+      assert.equal(committedOnly.count, 1);
+      assert.equal(openOnly.checkpoints[0].id, a.checkpoint_id);
+      assert.equal(committedOnly.checkpoints[0].id, b.checkpoint_id);
+    } finally {
+      await cleanupProject(filterProjectId);
+    }
+  });
+
+  test("limit defaults to 20 and caps at 100", async () => {
+    const capProjectId = uniqueProjectId();
+    try {
+      // Insert 25 rows; default limit should clamp to 20.
+      for (let i = 0; i < 25; i++) {
+        await checkpointCreateHandler({ project_id: capProjectId, step_label: `n${i}` });
+      }
+      const def = await checkpointListHandler({ project_id: capProjectId });
+      assert.equal(def.count, 20);
+
+      const capped = await checkpointListHandler({ project_id: capProjectId, limit: 100 });
+      assert.equal(capped.count, 25);
+
+      // limit > 100 should be rejected by zod.
+      await assert.rejects(
+        () => checkpointListHandler({ project_id: capProjectId, limit: 101 }),
+        /less than or equal to 100|max/i,
+      );
+    } finally {
+      await cleanupProject(capProjectId);
+    }
+  });
 });
