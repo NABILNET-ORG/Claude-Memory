@@ -505,7 +505,7 @@ flowchart LR
 | `terminal_committed_checkpoint` | SQL fn | A | Recursive CTE: returns source_chunk_id of deepest committed descendant. Shared by restore + archive. |
 | `archive_done_backlog` (patched) | SQL fn | A | CREATE OR REPLACE inside 014 (NEVER edits 005). Now populates `archive_backlog.chunk_id` from the terminal committed checkpoint per task. Legacy non-skill rows still archive with NULL chunk_id. |
 | `openCheckpoint` / `commitCheckpoint` / `rollbackCheckpoint` / `listCheckpoints` / `restoreFrom` | TS service | A | Pure functions in `src/transactions/checkpoint.ts`. No MCP surface yet. |
-| `checkpoint_create` / `_commit` / `_rollback` / `_list` | MCP tools | B | 4 deferred-Phase-B tools that wrap the service for orchestrator use. |
+| `checkpoint_create` / `_commit` / `_rollback` / `_list` | MCP tools | B | 4 Phase B tools wrapping the service for orchestrator use. **Production-validated Session 30** — `tests/checkpoint.test.ts` 12/12 pass against live Supabase; `scripts/smoke-m4.ts` (npm run smoke:m4) green; full suite 91/91, tsc gate clean. |
 | `backfillArchiveChunkIds()` | one-shot | B | Closes S19: populates `archive_backlog.chunk_id` for the legacy 7523-row corpus where a checkpoint chain exists. |
 | miner rollback-signal extension | M3 patch | B | Extends `src/sleep/miner.ts` to LEFT JOIN `workflow_checkpoints` so rolled-back checkpoint chains feed negative-example mining. |
 
