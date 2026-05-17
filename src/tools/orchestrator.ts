@@ -63,6 +63,12 @@ function buildWorkerPrompt(args: DelegateArgs): string {
     steps.push("");
   }
 
+  steps.push("## Skill Discovery (run BEFORE the workflow below)");
+  steps.push(
+    "Before tackling the task, call `request_skill({ query: <one-sentence description of what you are about to do> })`. If a skill returns with a `steps` array, follow it verbatim — these are prior validated procedures (e.g. systematic-debugging, test-driven-development, brainstorming, verification-before-completion). If no skill applies (or similarity is below the JIT floor), proceed with your own judgment. EITHER WAY you MUST report `skill_applied: <skill-name>` or `skill_applied: false` in paragraph 2 of the synthesis.",
+  );
+  steps.push("");
+
   steps.push("## Required workflow");
   steps.push("1. Perform the edits/research/commands as instructed. Track the absolute path of every file you touched — you will need this list for steps 3 and 4.");
   if (runGate) {
@@ -115,7 +121,7 @@ function buildWorkerPrompt(args: DelegateArgs): string {
   const synthStep = runGate && selfHeal ? "5." : allowRollback ? "4." : "3.";
   steps.push("");
   steps.push(
-    `${synthStep} Return ONLY a 2-paragraph synthesis (≤ ${synthLimit} words total). Paragraph 1: what changed, why, and which files. Paragraph 2: gate result (pass on first try / passed after N healing attempts / rolled back), key healing hypotheses you tested, remaining risks or follow-ups.`,
+    `${synthStep} Return ONLY a 2-paragraph synthesis (≤ ${synthLimit} words total). Paragraph 1: what changed, why, and which files. Paragraph 2: gate result (pass on first try / passed after N healing attempts / rolled back), key healing hypotheses you tested, remaining risks or follow-ups. End paragraph 2 with a final line on its own: \`skill_applied: <skill-name-you-followed>\` OR \`skill_applied: false\` if no skill was fetched.`,
   );
   steps.push("");
 
@@ -131,6 +137,9 @@ function buildWorkerPrompt(args: DelegateArgs): string {
   );
   steps.push(
     "- If the task is ambiguous or the gate failure reflects a genuinely missing requirement (not a regression you introduced), say so in the synthesis with a specific next question for the Orchestrator — do not invent requirements.",
+  );
+  steps.push(
+    "- Skill Discovery is MANDATORY. You MUST call `request_skill` at least once before tackling the task, and report `skill_applied` in paragraph 2. Skipping discovery silently is a contract violation; the Orchestrator will reject the synthesis.",
   );
 
   return steps.join("\n");
