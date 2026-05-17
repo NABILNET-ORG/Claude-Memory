@@ -152,7 +152,70 @@ describe("M4 checkpoint_commit handler", () => {
 });
 
 describe("M4 checkpoint_rollback handler", () => {
-  // body filled in by Tasks 11–12
+  const projectId = uniqueProjectId();
+  let chunkId: number;
+  before(async () => {
+    chunkId = await insertThrowawayChunk(projectId);
+  });
+  after(async () => {
+    await cleanupProject(projectId);
+  });
+
+  test("rolling back an orphan returns restored_from:null", async () => {
+    const opened = await checkpointCreateHandler({
+      project_id: projectId,
+      step_label: "orphan-to-rollback",
+    });
+    const r = await checkpointRollbackHandler({
+      project_id: projectId,
+      checkpoint_id: opened.checkpoint_id,
+      reason: "test orphan rollback",
+    });
+    assert.equal(r.checkpoint_id, opened.checkpoint_id);
+    assert.equal(r.status, "rolledback");
+    assert.equal(r.restored_from, null);
+  });
+
+  test("walks parent chain to deepest committed ancestor", async () => {
+    // root (committed) → mid (committed) → leaf (open, then rolledback)
+    const root = await checkpointCreateHandler({
+      project_id: projectId,
+      step_label: "root",
+    });
+    await checkpointCommitHandler({
+      project_id: projectId,
+      checkpoint_id: root.checkpoint_id,
+      source_chunk_id: chunkId,
+    });
+    const mid = await checkpointCreateHandler({
+      project_id: projectId,
+      step_label: "mid",
+      parent_id: root.checkpoint_id,
+      step_index: 1,
+    });
+    await checkpointCommitHandler({
+      project_id: projectId,
+      checkpoint_id: mid.checkpoint_id,
+      source_chunk_id: chunkId,
+    });
+    const leaf = await checkpointCreateHandler({
+      project_id: projectId,
+      step_label: "leaf",
+      parent_id: mid.checkpoint_id,
+      step_index: 2,
+    });
+
+    const r = await checkpointRollbackHandler({
+      project_id: projectId,
+      checkpoint_id: leaf.checkpoint_id,
+      reason: "test chain walk",
+    });
+    assert.equal(r.status, "rolledback");
+    assert.notEqual(r.restored_from, null);
+    // Deepest committed ancestor is `mid`, not `root`.
+    assert.equal(r.restored_from?.checkpoint_id, mid.checkpoint_id);
+    assert.equal(r.restored_from?.source_chunk_id, chunkId);
+  });
 });
 
 describe("M4 checkpoint_list handler", () => {
