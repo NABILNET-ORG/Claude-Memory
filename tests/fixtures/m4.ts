@@ -54,9 +54,53 @@ export async function insertThrowawayBacklogRow(projectId: string): Promise<numb
   return data.id;
 }
 
+export type ThrowawayCheckpointOpts = {
+  stepLabel: string;
+  status?: "open" | "committed" | "rolledback";
+  skillId?: number | null;
+  parentId?: number | null;
+  sourceChunkId?: number | null;
+  rollbackReason?: string | null;
+  // ISO timestamp string. When omitted, server default `now()` is used.
+  // Use to test the rollback_repro 30-day window: pass an old timestamp
+  // to verify out-of-window rows are excluded from the aggregate.
+  createdAt?: string;
+};
+
+export async function insertThrowawayCheckpoint(
+  projectId: string,
+  opts: ThrowawayCheckpointOpts,
+): Promise<number> {
+  const row: Record<string, unknown> = {
+    project_id: projectId,
+    step_label: opts.stepLabel,
+    status: opts.status ?? "open",
+    skill_id: opts.skillId ?? null,
+    parent_id: opts.parentId ?? null,
+    source_chunk_id: opts.sourceChunkId ?? null,
+    rollback_reason: opts.rollbackReason ?? null,
+  };
+  if (opts.createdAt !== undefined) {
+    row.created_at = opts.createdAt;
+  }
+  const { data, error } = await supabase
+    .from("workflow_checkpoints")
+    .insert(row)
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `insertThrowawayCheckpoint failed: ${error?.message ?? "no row returned"}`,
+    );
+  }
+  return data.id;
+}
+
 export async function cleanupProject(projectId: string): Promise<void> {
-  // Order matters: workflow_checkpoints first (it FKs to memory_chunks via
-  // source_chunk_id), then cloud_backlog, then memory_chunks.
+  // Order matters: curriculum_tasks first (FKs to workflow_checkpoints via
+  // linked_checkpoint_id), then workflow_checkpoints (FKs to memory_chunks
+  // via source_chunk_id), then cloud_backlog, then memory_chunks.
+  await supabase.from("curriculum_tasks").delete().eq("project_id", projectId);
   await supabase.from("workflow_checkpoints").delete().eq("project_id", projectId);
   await supabase.from("cloud_backlog").delete().eq("project_id", projectId);
   await supabase.from("memory_chunks").delete().eq("project_id", projectId);
