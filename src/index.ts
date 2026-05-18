@@ -78,6 +78,18 @@ import {
   rejectGraduation,
   rejectGraduationInputShape,
 } from "./tools/graduation.js";
+import {
+  upsertKgNode,
+  upsertKgNodeInputShape,
+  upsertKgEdge,
+  upsertKgEdgeInputShape,
+  kgHybridSearch,
+  kgHybridSearchInputShape,
+  listKgNodes,
+  listKgNodesInputShape,
+  listKgEdges,
+  listKgEdgesInputShape,
+} from "./tools/kg.js";
 import { startCompactor } from "./trajectory/daemon.js";
 import { startSleepLearner } from "./sleep/daemon.js";
 import { startCurriculumDaemon } from "./curriculum/daemon.js";
@@ -545,6 +557,58 @@ server.tool(
   }),
 );
 
+// ─── M8 Phase 3 — Knowledge Graph (Hybrid RAG) ────────────────────────────
+// Five tools backed by migration 020_knowledge_graph.sql. The graph layer is
+// orthogonal to the vector store: kg_nodes carry their own embedding column,
+// kg_edges describe relations, and kg_hybrid_search blends ANN seeds with a
+// 1-hop graph expansion. All writes go through SECURITY DEFINER RPCs so the
+// idempotency contract lives in SQL, not TS.
+
+server.tool(
+  "kg_upsert_node",
+  "Insert or update a Knowledge Graph node (M8 Phase 3). Natural key is (project_id, type, label) — re-calling with the same triple updates properties; embedding and source_chunk_id are only overwritten when the caller passes non-null values so existing semantic anchors are preserved. The embedding (if supplied) MUST be a 768-dim float array — the same dim as memory_chunks.embedding. Returns ok:true with the node_id on success.",
+  upsertKgNodeInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await upsertKgNode(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "kg_upsert_edge",
+  "Insert or update a Knowledge Graph edge between two nodes (M8 Phase 3). Edges are DIRECTED — source_id → target_id under the named relation. Idempotent on (project_id, source_id, target_id, relation). Self-loops are rejected. Re-calling with the same key updates weight + properties. Returns ok:true with the edge_id on success.",
+  upsertKgEdgeInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await upsertKgEdge(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "kg_hybrid_search",
+  "Hybrid RAG retrieval over the M8 Knowledge Graph: (1) ANN nearest-K over kg_nodes.embedding inside the given project_id, (2) 1-hop neighbour expansion through kg_edges (0 hops = seeds only, max 2). Returns { seeds, neighbors } with similarity scores on seeds and edge weights on neighbours so the Orchestrator can blend signals when re-ranking. Use the SAME embedding model as kg_upsert_node — dim is fixed at 768.",
+  kgHybridSearchInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await kgHybridSearch(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "list_kg_nodes",
+  "Enumerate Knowledge Graph nodes for a project. Filterable by type or label prefix (ILIKE). Default limit 20, hard cap 200. Ordered by updated_at DESC so the most-recently-touched nodes surface first.",
+  listKgNodesInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await listKgNodes(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "list_kg_edges",
+  "Enumerate Knowledge Graph edges for a project. Filterable by source_id, target_id, and/or relation. Default limit 20, hard cap 200. Ordered by created_at DESC.",
+  listKgEdgesInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await listKgEdges(args), null, 2) }],
+  }),
+);
+
 // ─── v0.5.0 tools ─────────────────────────────────────────────────────────
 
 server.tool(
@@ -815,6 +879,25 @@ server.tool(
     content: [{ type: "text", text: JSON.stringify(await syncArtefacts(args), null, 2) }],
   }),
 );
+
+// Optional: Sovereign Command Center (M8 Phase 2). Disabled by default —
+// the MCP stdio server is the only ON-by-default surface. Operators opt in
+// via SCM_GUI_ENABLED=1 to get the local-loopback dashboard alongside MCP.
+if (
+  process.env.SCM_GUI_ENABLED === "1" ||
+  (process.env.SCM_GUI_ENABLED ?? "").toLowerCase() === "true"
+) {
+  try {
+    const { startGuiServer } = await import("./gui/server.js");
+    const started = await startGuiServer({
+      token: process.env.SCM_GUI_TOKEN ?? null,
+    });
+    process.stderr.write(`[scm-gui] listening on ${started.url}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[scm-gui] failed to start: ${msg}\n`);
+  }
+}
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
