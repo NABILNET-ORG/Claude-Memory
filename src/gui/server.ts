@@ -32,6 +32,12 @@ import {
   type ConfirmPromotionInput,
   type RejectGraduationInput,
 } from "../tools/graduation.js";
+import {
+  listKgNodes as defaultListKgNodes,
+  listKgEdges as defaultListKgEdges,
+  type ListKgNodesInput,
+  type ListKgEdgesInput,
+} from "../tools/kg.js";
 import { DASHBOARD_HTML } from "./static.js";
 
 export const GUI_VERSION = "1.0.0";
@@ -41,6 +47,8 @@ export type GuiHandlers = {
   composeGlobalRationale: (input: ComposeGlobalRationaleInput) => Promise<unknown>;
   confirmPromotion: (input: ConfirmPromotionInput) => Promise<unknown>;
   rejectGraduation: (input: RejectGraduationInput) => Promise<unknown>;
+  listKgNodes: (input: ListKgNodesInput) => Promise<unknown>;
+  listKgEdges: (input: ListKgEdgesInput) => Promise<unknown>;
 };
 
 const DEFAULT_HANDLERS: GuiHandlers = {
@@ -48,7 +56,34 @@ const DEFAULT_HANDLERS: GuiHandlers = {
   composeGlobalRationale: defaultCompose,
   confirmPromotion: defaultConfirm,
   rejectGraduation: defaultReject,
+  listKgNodes: defaultListKgNodes,
+  listKgEdges: defaultListKgEdges,
 };
+
+// Knowledge Graph route parameter clamps.
+const GRAPH_NODE_LIMIT_DEFAULT = 60;
+const GRAPH_NODE_LIMIT_MIN = 1;
+const GRAPH_NODE_LIMIT_MAX = 200;
+const GRAPH_EDGE_LIMIT_DEFAULT = 120;
+const GRAPH_EDGE_LIMIT_MIN = 1;
+const GRAPH_EDGE_LIMIT_MAX = 500;
+
+function clampInt(raw: string | null, def: number, min: number, max: number): number {
+  if (raw === null) return def;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return def;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+function resolveProjectId(raw: string | null): string {
+  if (raw && raw.trim().length > 0) return raw;
+  const env = process.env.SMART_CLAUDE_MEMORY_PROJECT_ID;
+  if (env && env.trim().length > 0) return env;
+  return "claude-memory";
+}
 
 export interface GuiServerOptions {
   port?: number;
@@ -112,6 +147,98 @@ export function createGuiServer(opts: GuiServerOptions = {}): http.Server {
 
         const result = await handlers.listGraduationCandidates(input);
         return sendJson(res, 200, result);
+      }
+
+      if (method === "GET" && path === "/api/graph") {
+        const projectId = resolveProjectId(url.searchParams.get("project_id"));
+        const nodeLimit = clampInt(
+          url.searchParams.get("node_limit"),
+          GRAPH_NODE_LIMIT_DEFAULT,
+          GRAPH_NODE_LIMIT_MIN,
+          GRAPH_NODE_LIMIT_MAX,
+        );
+        const edgeLimit = clampInt(
+          url.searchParams.get("edge_limit"),
+          GRAPH_EDGE_LIMIT_DEFAULT,
+          GRAPH_EDGE_LIMIT_MIN,
+          GRAPH_EDGE_LIMIT_MAX,
+        );
+        const typeFilter = url.searchParams.get("type");
+        const labelPrefix = url.searchParams.get("label_prefix");
+
+        const nodesInput: ListKgNodesInput = { project_id: projectId, k: nodeLimit };
+        if (typeFilter && typeFilter.trim().length > 0) nodesInput.type = typeFilter;
+        if (labelPrefix && labelPrefix.trim().length > 0) nodesInput.label_prefix = labelPrefix;
+        const edgesInput: ListKgEdgesInput = { project_id: projectId, k: edgeLimit };
+
+        try {
+          const [nodesRes, edgesRes] = await Promise.all([
+            handlers.listKgNodes(nodesInput),
+            handlers.listKgEdges(edgesInput),
+          ]);
+
+          const nodesPayload = nodesRes as { ok?: boolean; reason?: string; results?: unknown[] };
+          if (nodesPayload && nodesPayload.ok === false) {
+            return sendJson(res, 500, {
+              ok: false,
+              reason: String(nodesPayload.reason ?? "list_kg_nodes_failed"),
+            });
+          }
+          const edgesPayload = edgesRes as { ok?: boolean; reason?: string; results?: unknown[] };
+          if (edgesPayload && edgesPayload.ok === false) {
+            return sendJson(res, 500, {
+              ok: false,
+              reason: String(edgesPayload.reason ?? "list_kg_edges_failed"),
+            });
+          }
+
+          const rawNodes = Array.isArray(nodesPayload?.results) ? nodesPayload.results : [];
+          const rawEdges = Array.isArray(edgesPayload?.results) ? edgesPayload.results : [];
+
+          const nodeIds = new Set<number>();
+          for (const n of rawNodes) {
+            const id = (n as { id?: unknown }).id;
+            if (typeof id === "number") nodeIds.add(id);
+          }
+          const filteredEdges = rawEdges.filter((e) => {
+            const src = (e as { source_id?: unknown }).source_id;
+            const tgt = (e as { target_id?: unknown }).target_id;
+            return (
+              typeof src === "number" &&
+              typeof tgt === "number" &&
+              nodeIds.has(src) &&
+              nodeIds.has(tgt)
+            );
+          });
+
+          const typeBreakdown: Record<string, number> = {};
+          for (const n of rawNodes) {
+            const t = (n as { type?: unknown }).type;
+            const key = typeof t === "string" && t.length > 0 ? t : "UNKNOWN";
+            typeBreakdown[key] = (typeBreakdown[key] ?? 0) + 1;
+          }
+
+          return sendJson(res, 200, {
+            ok: true,
+            project_id: projectId,
+            params: {
+              node_limit: nodeLimit,
+              edge_limit: edgeLimit,
+              type: typeFilter ?? null,
+              label_prefix: labelPrefix ?? null,
+            },
+            nodes: rawNodes,
+            edges: filteredEdges,
+            stats: {
+              node_count: rawNodes.length,
+              edge_count: filteredEdges.length,
+              type_breakdown: typeBreakdown,
+            },
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return sendJson(res, 500, { ok: false, reason: msg });
+        }
       }
 
       const mutMatch = path.match(/^\/api\/graduations\/(\d+)\/(confirm|reject|compose)$/);

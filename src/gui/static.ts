@@ -133,6 +133,128 @@ export const DASHBOARD_HTML = `<!doctype html>
       cursor: pointer; font-family: inherit;
     }
     dialog button.primary { border-color: var(--accent); color: var(--accent); }
+
+    /* ─── Knowledge Graph Panel (M8.1 Phase 2) ─────────────────────────── */
+    .graph-panel {
+      margin: 0 24px 24px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .graph-header {
+      display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .graph-header h2 {
+      margin: 0;
+      font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .graph-controls {
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; flex: 1;
+    }
+    .graph-controls label {
+      color: var(--muted); font-size: 11px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .graph-controls input[type="number"],
+    .graph-controls input[type="text"] {
+      width: 80px;
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 4px 6px; border-radius: 4px;
+      font-family: inherit; font-size: 12px;
+    }
+    .graph-controls input[type="text"] { width: 110px; }
+    .graph-controls button {
+      background: var(--panel-2); border: 1px solid var(--border);
+      color: var(--text); padding: 4px 10px; border-radius: 4px;
+      cursor: pointer; font-family: inherit; font-size: 11px;
+    }
+    .graph-controls button:hover { border-color: var(--accent); }
+    .muted { color: var(--muted); font-size: 11px; }
+    .graph-canvas-wrap {
+      position: relative;
+      min-height: 620px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    #graph-svg {
+      width: 100%;
+      height: 620px;
+      display: block;
+    }
+    .edge-line {
+      stroke: var(--muted);
+      stroke-width: 1;
+      opacity: 0.6;
+    }
+    .edge-line[data-relation="REFERENCES"] {
+      stroke-dasharray: 4 3;
+    }
+    .node { cursor: pointer; }
+    .node-circle {
+      stroke: var(--bg);
+      stroke-width: 1.5;
+      fill: var(--muted);
+    }
+    .node-circle:hover { stroke-width: 3; }
+    .node-circle[data-type="DECISION"] { fill: var(--accent); }
+    .node-circle[data-type="PATTERN"]  { fill: var(--ok); }
+    .node-circle[data-type="ERROR"]    { fill: var(--err); }
+    .node-circle[data-type="FILE"]     { fill: var(--warn); }
+    .node-circle[data-type="NOTE"]     { fill: var(--muted); }
+    .node-label {
+      fill: var(--text);
+      font-size: 10px;
+      pointer-events: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .graph-detail {
+      position: absolute;
+      top: 12px; right: 12px;
+      width: 280px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+    .graph-detail[hidden] { display: none; }
+    .graph-detail h3 {
+      margin: 0 0 8px;
+      font-size: 13px; color: var(--accent);
+      word-break: break-word;
+    }
+    .graph-detail p { margin: 4px 0; }
+    .graph-detail code {
+      background: var(--bg); padding: 1px 4px; border-radius: 3px;
+      font-size: 11px;
+    }
+    .graph-detail pre.props {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px;
+      margin: 6px 0;
+      max-height: 200px;
+      overflow: auto;
+      font-size: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .graph-detail button {
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--text); padding: 3px 10px; border-radius: 4px;
+      cursor: pointer; font-family: inherit; font-size: 11px;
+      margin-top: 4px;
+    }
+    .graph-detail button:hover { border-color: var(--err); color: var(--err); }
   </style>
 </head>
 <body>
@@ -161,6 +283,30 @@ export const DASHBOARD_HTML = `<!doctype html>
       <div class="cards" data-cards="rejected"></div>
     </section>
   </main>
+
+  <section class="graph-panel" id="graph-panel">
+    <header class="graph-header">
+      <h2>Knowledge Graph</h2>
+      <div class="graph-controls">
+        <label>Nodes <input type="number" id="g-node-limit" value="60" min="1" max="200" /></label>
+        <label>Edges <input type="number" id="g-edge-limit" value="120" min="1" max="500" /></label>
+        <label>Type <input type="text" id="g-type-filter" placeholder="(any)" /></label>
+        <button id="g-reload" type="button">Reload</button>
+        <span id="g-stats" class="muted"></span>
+      </div>
+    </header>
+    <div class="graph-canvas-wrap">
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Knowledge Graph"></svg>
+      <aside id="graph-detail" class="graph-detail" hidden>
+        <h3 id="gd-label">—</h3>
+        <p><span class="muted">type:</span> <code id="gd-type">—</code></p>
+        <p><span class="muted">source chunk:</span> <code id="gd-src">—</code></p>
+        <pre id="gd-props" class="props"></pre>
+        <button id="gd-close" type="button">Close</button>
+      </aside>
+    </div>
+  </section>
+
   <div id="toast"></div>
 
   <dialog id="composeDialog">
@@ -345,6 +491,213 @@ export const DASHBOARD_HTML = `<!doctype html>
     loadHealth();
     loadGraduations();
     setInterval(loadHealth, 30000);
+
+    // ─── Knowledge Graph Panel (M8.1 Phase 2) ────────────────────────────
+    (function initGraphPanel() {
+      const svg = document.getElementById('graph-svg');
+      const stats = document.getElementById('g-stats');
+      const detail = document.getElementById('graph-detail');
+      const closeBtn = document.getElementById('gd-close');
+      const reload = document.getElementById('g-reload');
+      const nodeInput = document.getElementById('g-node-limit');
+      const edgeInput = document.getElementById('g-edge-limit');
+      const typeInput = document.getElementById('g-type-filter');
+      if (!svg || !stats || !detail || !closeBtn || !reload || !nodeInput || !edgeInput || !typeInput) {
+        return;
+      }
+
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const W = 1000, H = 600;
+      const PAD = 30;
+      const K_REP = 1500;
+      const K_ATTR = 0.02;
+      const IDEAL = 100;
+      const MAX_ITER = 120;
+
+      function makeSvg(name, attrs) {
+        const el = document.createElementNS(SVG_NS, name);
+        if (attrs) {
+          for (const k of Object.keys(attrs)) {
+            el.setAttribute(k, String(attrs[k]));
+          }
+        }
+        return el;
+      }
+
+      function truncate(s, n) {
+        const str = String(s == null ? '' : s);
+        if (str.length <= n) return str;
+        return str.slice(0, n - 1) + '…';
+      }
+
+      function radiusForType(type) {
+        if (type === 'DECISION') return 9;
+        if (type === 'PATTERN') return 8;
+        if (type === 'ERROR') return 8;
+        if (type === 'FILE') return 7;
+        return 6;
+      }
+
+      // Deterministic seeded pseudo-random in [0,1) from a node id.
+      // Lets the graph render stably across reloads with the same data.
+      function seededRand(seed) {
+        let x = (seed * 9301 + 49297) % 233280;
+        return function next() {
+          x = (x * 9301 + 49297) % 233280;
+          return x / 233280;
+        };
+      }
+
+      function layout(nodes, edges) {
+        const n = nodes.length;
+        if (n === 0) return;
+        // Seed initial positions deterministically by node.id.
+        for (const node of nodes) {
+          const rng = seededRand(Number(node.id) || 1);
+          node.x = PAD + rng() * (W - 2 * PAD);
+          node.y = PAD + rng() * (H - 2 * PAD);
+          node.vx = 0; node.vy = 0;
+        }
+        if (n === 1) return;
+
+        let temp = 1.0;
+        for (let iter = 0; iter < MAX_ITER; iter++) {
+          // Repulsion: O(n²) — fine for ≤200 nodes.
+          for (let i = 0; i < n; i++) {
+            const a = nodes[i];
+            let fx = 0, fy = 0;
+            for (let j = 0; j < n; j++) {
+              if (i === j) continue;
+              const b = nodes[j];
+              let dx = a.x - b.x;
+              let dy = a.y - b.y;
+              let dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < 5) dist = 5;
+              const f = K_REP / (dist * dist);
+              fx += (dx / dist) * f;
+              fy += (dy / dist) * f;
+            }
+            a.vx = fx;
+            a.vy = fy;
+          }
+          // Attraction along edges.
+          for (const e of edges) {
+            const s = nodes.find(function(nn) { return nn.id === e.source_id; });
+            const t = nodes.find(function(nn) { return nn.id === e.target_id; });
+            if (!s || !t) continue;
+            const dx = t.x - s.x;
+            const dy = t.y - s.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const f = K_ATTR * dist / IDEAL;
+            const ax = (dx / dist) * f * dist;
+            const ay = (dy / dist) * f * dist;
+            s.vx += ax; s.vy += ay;
+            t.vx -= ax; t.vy -= ay;
+          }
+          // Apply with cooling.
+          for (const node of nodes) {
+            node.x += node.vx * temp;
+            node.y += node.vy * temp;
+            if (node.x < PAD) node.x = PAD;
+            if (node.x > W - PAD) node.x = W - PAD;
+            if (node.y < PAD) node.y = PAD;
+            if (node.y > H - PAD) node.y = H - PAD;
+          }
+          temp *= 0.985;
+        }
+      }
+
+      function showDetail(node) {
+        const lblEl = document.getElementById('gd-label');
+        const typeEl = document.getElementById('gd-type');
+        const srcEl = document.getElementById('gd-src');
+        const propsEl = document.getElementById('gd-props');
+        if (lblEl) lblEl.textContent = String(node.label == null ? '' : node.label);
+        if (typeEl) typeEl.textContent = String(node.type == null ? '' : node.type);
+        if (srcEl) srcEl.textContent = node.source_chunk_id == null ? '—' : String(node.source_chunk_id);
+        if (propsEl) {
+          try {
+            propsEl.textContent = JSON.stringify(node.properties || {}, null, 2);
+          } catch (e) {
+            propsEl.textContent = '{}';
+          }
+        }
+        detail.hidden = false;
+      }
+
+      function render(graph) {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        const nodes = Array.isArray(graph.nodes) ? graph.nodes.slice() : [];
+        const edges = Array.isArray(graph.edges) ? graph.edges.slice() : [];
+        const nodeById = new Map();
+        for (const nn of nodes) nodeById.set(nn.id, nn);
+        layout(nodes, edges);
+
+        // Edges first (behind nodes).
+        for (const e of edges) {
+          const s = nodeById.get(e.source_id);
+          const t = nodeById.get(e.target_id);
+          if (!s || !t) continue;
+          const line = makeSvg('line', {
+            x1: s.x, y1: s.y, x2: t.x, y2: t.y,
+            'class': 'edge-line',
+            'data-relation': e.relation == null ? '' : String(e.relation),
+          });
+          svg.appendChild(line);
+        }
+
+        // Nodes.
+        for (const n of nodes) {
+          const g = makeSvg('g', {
+            'class': 'node',
+            'data-type': n.type == null ? '' : String(n.type),
+            transform: 'translate(' + n.x + ',' + n.y + ')',
+          });
+          const c = makeSvg('circle', {
+            'class': 'node-circle',
+            r: radiusForType(n.type),
+            'data-type': n.type == null ? '' : String(n.type),
+          });
+          const lbl = makeSvg('text', {
+            'class': 'node-label',
+            dy: -12,
+            'text-anchor': 'middle',
+          });
+          lbl.textContent = truncate(n.label, 24);
+          g.appendChild(c);
+          g.appendChild(lbl);
+          g.addEventListener('click', function () { showDetail(n); });
+          svg.appendChild(g);
+        }
+      }
+
+      closeBtn.addEventListener('click', function () { detail.hidden = true; });
+
+      async function loadGraph() {
+        const params = new URLSearchParams();
+        params.set('node_limit', String(nodeInput.value));
+        params.set('edge_limit', String(edgeInput.value));
+        const t = String(typeInput.value || '').trim();
+        if (t) params.set('type', t);
+        stats.textContent = 'Loading…';
+        try {
+          const r = await jsonFetch('/api/graph?' + params.toString());
+          const body = r.body || {};
+          if (!r.ok || body.ok === false) {
+            stats.textContent = 'Error: ' + (body.reason || r.status);
+            return;
+          }
+          const s = body.stats || { node_count: 0, edge_count: 0 };
+          stats.textContent = s.node_count + ' nodes · ' + s.edge_count + ' edges';
+          render(body);
+        } catch (err) {
+          stats.textContent = 'Error: ' + String(err);
+        }
+      }
+
+      reload.addEventListener('click', loadGraph);
+      loadGraph();
+    })();
   </script>
 </body>
 </html>`;

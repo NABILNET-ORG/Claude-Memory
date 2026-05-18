@@ -95,6 +95,7 @@ import { startSleepLearner } from "./sleep/daemon.js";
 import { startCurriculumDaemon } from "./curriculum/daemon.js";
 import { startGraduationDaemon } from "./graduation/daemon.js";
 import { startTelemetryPruner } from "./telemetry/pruner.js";
+import { startGraphExtractor } from "./graph/daemon.js";
 import { ensureSchema, startKeepAlive, writeFrozenPatternsCache } from "./supabase.js";
 import { currentProjectId } from "./project.js";
 import { VERSION } from "./version.js";
@@ -157,6 +158,13 @@ startGraduationDaemon();
 // rows older than TELEMETRY_PRUNER_RETENTION_DAYS. .unref()'d so it never
 // blocks process exit.
 startTelemetryPruner();
+
+// Start the knowledge-graph extractor daemon (M8.1 Phase 1).
+// Idle miner: every SCM_GRAPH_EXTRACTOR_INTERVAL_MS, pulls memory_chunks
+// rows not yet anchored in kg_nodes and mines primary + FILE/DECISION
+// reference nodes/edges via src/graph/extractor.ts. Pure deterministic
+// extractor — ZERO generative AI. .unref()'d so it never blocks process exit.
+startGraphExtractor();
 
 // Export the current frozen_features snapshot to the shared cache file so
 // hooks/md-policy.py can read it without hitting Supabase per tool call.

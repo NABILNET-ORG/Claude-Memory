@@ -8,6 +8,7 @@ import {
   type ArchiveRow,
 } from "../supabase.js";
 import { currentProjectId } from "../project.js";
+import { kgHybridSearch, type KgSeed, type KgNeighbor } from "./kg.js";
 
 /** Pure-number queries (e.g. "11468") -> direct SQL fetch by id. Bypasses
  *  vector ranking, which can fail to surface a known row when its embedding
@@ -220,14 +221,43 @@ export async function searchMemory(args: {
   // candidate set BEFORE pgvector ranks. Project-id filtering is structural
   // at the SQL level (first WHERE predicate) and is never relaxed.
   const [queryVec] = await embed([args.query]);
-  const results = await searchChunks(
-    projectId,
-    queryVec,
-    limit,
-    args.min_similarity ?? 0.0,
-    args.metadata_filter ?? null,
-    includeGlobal,
-  );
+
+  // M8.1 Phase 1 — Graph-RAG splice: in parallel with the vector lookup,
+  // ask the knowledge graph for seeds + 1-hop neighbors keyed on the same
+  // embedding. Failures are silent: graph_context is OPTIONAL and never
+  // blocks or pollutes the semantic response.
+  const graphDisabled = (process.env.SCM_GRAPH_RAG_DISABLED ?? "0") === "1";
+  const graphPromise = graphDisabled
+    ? Promise.resolve({ ok: false, reason: "graph_rag_disabled" } as const)
+    : kgHybridSearch({ project_id: projectId, query_embedding: queryVec }).catch((e) => ({
+        ok: false as const,
+        reason: e instanceof Error ? e.message : String(e),
+      }));
+
+  const [resultsSettled, graphSettled] = await Promise.allSettled([
+    searchChunks(
+      projectId,
+      queryVec,
+      limit,
+      args.min_similarity ?? 0.0,
+      args.metadata_filter ?? null,
+      includeGlobal,
+    ),
+    graphPromise,
+  ]);
+
+  if (resultsSettled.status === "rejected") throw resultsSettled.reason;
+  const results = resultsSettled.value;
+
+  let graphContext: { seeds: KgSeed[]; neighbors: KgNeighbor[] } | undefined;
+  if (graphSettled.status === "fulfilled") {
+    const v = graphSettled.value;
+    if (v && (v as { ok?: boolean }).ok === true) {
+      const ok = v as { ok: true; seeds: KgSeed[]; neighbors: KgNeighbor[] };
+      graphContext = { seeds: ok.seeds, neighbors: ok.neighbors };
+    }
+  }
+
   return {
     project_id: projectId,
     query: args.query,
@@ -235,5 +265,6 @@ export async function searchMemory(args: {
     include_global: includeGlobal,
     count: results.length,
     results,
+    ...(graphContext ? { graph_context: graphContext } : {}),
   };
 }

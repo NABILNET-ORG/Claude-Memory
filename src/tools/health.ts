@@ -8,6 +8,7 @@ import { getSleepLearnerStatus } from "../sleep/daemon.js";
 import { getCurriculumStatus } from "../curriculum/daemon.js";
 import { getTelemetryPrunerStatus } from "../telemetry/pruner.js";
 import { getGraduationStatus } from "../graduation/daemon.js";
+import { getGraphExtractorStatus } from "../graph/daemon.js";
 import { VERSION } from "../version.js";
 
 // Per-daemon health derivation thresholds. Names use the user-mandated
@@ -209,6 +210,7 @@ type HealthReport = {
   curriculum_scanner: ReturnType<typeof getCurriculumStatus> & { derived: DerivedBlock };
   telemetry_pruner: ReturnType<typeof getTelemetryPrunerStatus> & { derived: DerivedBlock };
   graduation_scanner: ReturnType<typeof getGraduationStatus> & { derived: DerivedBlock };
+  graph_extractor: ReturnType<typeof getGraphExtractorStatus>;
   policy_enforcement: {
     cache_path: string;
     cache_present: boolean;
@@ -482,6 +484,7 @@ export async function checkSystemHealth(): Promise<HealthReport> {
     curriculum_scanner: { ...currSnap, derived: currDerived },
     telemetry_pruner: { ...prunerSnap, derived: prunerDerived },
     graduation_scanner: { ...graduSnap, derived: graduDerived },
+    graph_extractor: getGraphExtractorStatus(),
     policy_enforcement: policy,
     orchestrator,
     summary,
