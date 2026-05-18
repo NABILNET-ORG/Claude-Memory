@@ -1,6 +1,8 @@
 import { describe, test, after } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { listFileOriginsForProject, deleteChunksForFile } from "../src/supabase.js";
+import { pruneMemory } from "../src/tools/prune.js";
 import { insertThrowawayChunkForFile, uniqueProjectId } from "./fixtures/prune.js";
 
 describe("listFileOriginsForProject", () => {
@@ -27,5 +29,55 @@ describe("listFileOriginsForProject", () => {
     const empty = uniqueProjectId();
     const origins = await listFileOriginsForProject(empty);
     assert.deepEqual(origins, []);
+  });
+});
+
+describe("pruneMemory — input validation", () => {
+  test("T2: rejects empty explicit_paths", async () => {
+    await assert.rejects(
+      () => pruneMemory({ explicit_paths: [], project_id: uniqueProjectId() }),
+      /explicit_paths/,
+    );
+  });
+
+  test("T2b: rejects non-array explicit_paths", async () => {
+    await assert.rejects(
+      // @ts-expect-error — runtime guard must reject malformed input
+      () => pruneMemory({ project_id: uniqueProjectId() }),
+      /explicit_paths/,
+    );
+  });
+
+  test("T4: refuses project_id='GLOBAL'", async () => {
+    await assert.rejects(
+      () => pruneMemory({ explicit_paths: ["/tmp/whatever"], project_id: "GLOBAL" }),
+      /GLOBAL/,
+    );
+  });
+});
+
+describe("pruneMemory — dry-run", () => {
+  const projectId = uniqueProjectId();
+  const orphanFile = `/tmp/prune-dry-${randomUUID()}.md`;
+
+  after(async () => {
+    await deleteChunksForFile(projectId, orphanFile);
+  });
+
+  test("T1: dry_run returns mode='dry_run' and deletes nothing", async () => {
+    await insertThrowawayChunkForFile(projectId, orphanFile, "orphan-content");
+
+    const result = await pruneMemory({
+      explicit_paths: [orphanFile],
+      project_id: projectId,
+    });
+
+    assert.equal(result.mode, "dry_run");
+    assert.equal(result.deleted_total, 0);
+    assert.equal(result.project_id, projectId);
+    assert.equal(result.candidates.length, 1);
+
+    const survivors = await listFileOriginsForProject(projectId);
+    assert.ok(survivors.includes(orphanFile), "orphan row must survive dry_run");
   });
 });
