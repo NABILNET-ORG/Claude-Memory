@@ -210,6 +210,21 @@ export async function deleteChunksForFile(
 }
 
 /**
+ * Enumerate distinct file_origin values for a project. Used by prune_memory to
+ * intersect against on-disk paths when deciding which orphan files to delete.
+ */
+export async function listFileOriginsForProject(
+  projectId: string,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("memory_chunks")
+    .select("file_origin")
+    .eq("project_id", projectId);
+  if (error) throw new Error(`listFileOriginsForProject failed: ${error.message}`);
+  return Array.from(new Set((data ?? []).map((r) => r.file_origin as string)));
+}
+
+/**
  * Confirm a file is fully resident in Supabase before it's safe to delete locally.
  * Returns the chunk count, or 0 if nothing matches (project_id, file_origin, file_hash).
  */
