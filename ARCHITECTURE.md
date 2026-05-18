@@ -713,6 +713,90 @@ Unparseable or missing env values fall back to the defaults; the helper never th
 
 ---
 
+### 4.9 Skill Graduation to GLOBAL (Agentic OS 2026 — Mission 7 / SCM-S33-D1)
+
+**Goal.** Audit production-validated local `agent_skills` (high `frequency_used`, high `success_rate`, sufficient age) and graduate the elite to `project_id='GLOBAL'` — *propose only, never auto-promote*. M3 mints local skills from raw trajectories; M7 graduates the local skills that have earned cross-project worth.
+
+**Three immutable mandates.**
+
+1. **No auto-promotion.** The path to `is_global=true` (i.e., `project_id='GLOBAL'`) is structurally human-gated. The `graduation_scanner` daemon's only write surface is `INSERT skill_graduations (state='proposed', ...)`. The compose handler can only write rationale text. Only `apply_graduation` SQL RPC mints a GLOBAL row, and the RPC is reachable only via the `confirm_promotion` MCP tool — which is human-driven. Three separate state transitions; no global flag flip.
+2. **Single Brain Boundary #1.** `src/graduation/**` contains zero generative AI imports — no Ollama, no `@anthropic-ai`, no `openai`, no `@google`. The `lint:boundaries` CI fence (extended in commit 5f9d2b4) statically asserts this across `src/sleep/**`, `src/curriculum/**`, and `src/graduation/**`. The compose handler in `src/tools/graduation.ts` does NOT itself call an LLM either — the Orchestrator (Claude) is the LLM and feeds the compose output in as a typed payload (mirrors S22-D1 `compose_skill_candidate`).
+3. **Atomic clone.** `apply_graduation` performs `INSERT agent_skills (project_id='GLOBAL', ...)` + `UPDATE skill_graduations SET state='approved', decided_at=now(), promoted_global_skill_id=...` in ONE PostgreSQL transaction. The `now()` value collapses across the two writes, so `new_skill.created_at === graduation.decided_at` to the microsecond. Suite C C4 (`tests/graduation-handlers.test.ts`) and the smoke script's stage 7 (`scripts/smoke-m7.ts`) characterize this — observed at `2026-05-18T11:05:25.101055+00:00` across both runs.
+
+**Schema (`scripts/017_skill_graduations.sql`, additive only).**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigserial PK` | |
+| `project_id` | `text NOT NULL` | source skill's local project |
+| `source_skill_id` | `bigint NOT NULL → agent_skills(id) ON DELETE CASCADE` | clone source |
+| `state` | `text NOT NULL CHECK in ('proposed','composed','approved','rejected')` | lifecycle |
+| `frequency_at_propose` | `int NOT NULL CHECK >=0` | frozen telemetry snapshot |
+| `success_rate_at_propose` | `real NOT NULL CHECK 0..1` | frozen telemetry snapshot |
+| `age_days_at_propose` | `int NOT NULL CHECK >=0` | frozen telemetry snapshot |
+| `proposed_global_rationale` | `text NULL` | filled by `compose_global_rationale` (>=10 chars when verdict='pass') |
+| `cross_project_verdict` | `text NULL CHECK in ('pass','fail')` | filled by compose |
+| `cross_project_evidence` | `text NULL` | filled by compose |
+| `model` | `text NULL` | compose model identifier (audit) |
+| `composed_at` | `timestamptz NULL` | |
+| `promoted_global_skill_id` | `bigint NULL → agent_skills(id) ON DELETE SET NULL` | the GLOBAL clone |
+| `rejection_reason` | `text NULL` | |
+| `decided_at` | `timestamptz NULL` | atomic-tx microsecond timestamp |
+| `created_at` / `updated_at` | `timestamptz NOT NULL DEFAULT now()` | |
+
+**Indexes:** partial `UNIQUE(project_id, source_skill_id) WHERE state IN ('proposed','composed')` — one active proposal per skill at a time; rejected/approved rows allow re-proposal. `btree(state, created_at DESC)`, `btree(source_skill_id)`. **RLS:** `deny_anon_authenticated` (mirrors 006/010/011/012/014/015/016). **Trigger:** `BEFORE UPDATE` auto-bumps `updated_at` unless caller set it explicitly (the RPC sets it to the atomic-tx microsecond, the trigger respects that). **RPCs:** `apply_graduation(p_graduation_id bigint) RETURNS jsonb` (the atomic clone-to-GLOBAL). `SECURITY DEFINER` with `search_path = public, extensions, pg_catalog`. **Grants:** service_role only.
+
+**MCP tool surface (`src/tools/graduation.ts`, four handlers — registered in `src/index.ts` under banner "Agentic OS 2026 — M7 Skill Graduation (SCM-S33-D1)").**
+
+- `list_graduation_candidates` — SELECT with optional `state` + `project_id` filters; default limit 10, hard cap 50. Read-only.
+- `compose_global_rationale` — race-safe UPDATE `WHERE id=? AND state='proposed'` writing the Orchestrator-drafted `cross_project_verdict`, `cross_project_evidence`, `proposed_global_rationale`, `model`, `composed_at`. Server-side gates: evidence non-empty, model non-empty, verdict ∈ {pass, fail}, rationale >=10 chars when verdict='pass'. `verdict='fail'` coerces rationale to NULL.
+- `confirm_promotion` — calls the `apply_graduation` RPC. Sole `is_global=true` mint path. Defense-in-depth: RPC re-validates state='composed' + rationale presence + source not already GLOBAL.
+- `reject_graduation` — TS-only UPDATE `WHERE state IN ('proposed','composed')`. Diverges from M5's `reject_curriculum_task`: a second reject on an already-rejected row returns `ok:false` (reason='invalid_state_transition') instead of silently overwriting. Rationale: GLOBAL rejection reasons carry audit weight; overwrites would erase that history.
+
+**Daemon (`src/graduation/daemon.ts`).** Mirrors `src/curriculum/daemon.ts` exactly: module-level state, `.unref()`'d 1h interval, re-entrancy guard, `try/finally` tick that NEVER throws. Each tick scans `currentProjectId`'s `agent_skills` via the pure-SQL `findGraduationCandidates` (in `src/graduation/scanner.ts`) and `INSERT`s each surfaced row at `state='proposed'` with frozen telemetry. Race INSERTs (caught by partial UNIQUE → 23505) increment the `skipped` counter; real DB errors increment `errored`.
+
+**Env knobs (all `GRADUATION_*`).** `GRADUATION_INTERVAL_MS=3600000` · `GRADUATION_BATCH=10` · `GRADUATION_MIN_FREQUENCY=10` · `GRADUATION_MIN_SUCCESS_RATE=0.90` · `GRADUATION_MIN_AGE_DAYS=14`. Defaults locked 2026-05-18 (SCM-S33 user directive — elite-only floor).
+
+**Health / dashboard impact.** `check_system_health` gains a `graduation_scanner` block mirroring the four pre-existing daemons (snapshot + derived `{status, reason, error_rate_1h, staleness_ms, last_run_ended_at}`; included in the worst-of `rollupOverall`). `system_dashboard` gains a `graduation_scanner` row in the table + Live + Recent sections; the `rollupFor` aggregator now sums the `proposed` payload field as part of `items_processed`. Migration `019_telemetry_graduation_daemon.sql` extends the `daemon_telemetry.daemon` CHECK allow-list with `'graduation_scanner'`.
+
+**Write path (proposal — daemon-driven).**
+
+```mermaid
+flowchart LR
+  CRON[setInterval 1h .unref] --> SCAN[scanner.ts: findGraduationCandidates]
+  SCAN --> FILTER{eligible?}
+  FILTER -- "freq<10 / rate<0.90 / age<14d / active proposal / GLOBAL" --> NOOP[skip]
+  FILTER -- yes --> INSERT[INSERT skill_graduations state='proposed']
+  INSERT --> RACE{23505 conflict?}
+  RACE -- yes --> SKIPPED[counters.skipped++]
+  RACE -- no --> PROPOSED[counters.proposed++]
+  PROPOSED --> EMIT[emit run_ended]
+  SKIPPED --> EMIT
+```
+
+**Decision path (compose + confirm — Orchestrator + human).**
+
+```mermaid
+flowchart LR
+  LIST[list_graduation_candidates] --> ORCH[Orchestrator picks 'proposed' row]
+  ORCH --> LLM[Orchestrator LLM: Cross-Project Test]
+  LLM --> COMPOSE[compose_global_rationale handler]
+  COMPOSE --> COMPOSED[state='composed' + rationale + evidence + verdict + model]
+  COMPOSED --> HUMAN{Human review}
+  HUMAN -- approve --> CONFIRM[confirm_promotion handler]
+  CONFIRM --> RPC[apply_graduation SQL RPC]
+  RPC --> ATOMIC[INSERT agent_skills GLOBAL + UPDATE graduation, 1 tx]
+  ATOMIC --> APPROVED[state='approved', new_skill.created_at == decided_at]
+  HUMAN -- reject --> REJECT[reject_graduation handler]
+  REJECT --> REJECTED[state='rejected', rejection_reason recorded]
+```
+
+**Boundary Invariant #1 preservation.** `src/graduation/**` imports only `supabase`, `currentProjectId`, the scanner's `findGraduationCandidates`, and `../telemetry/emit.js` — all local relative paths, no model SDKs, no LLM endpoint strings. The lint fence now scans 6 files across the three boundary-protected subsystems; 0 violations.
+
+**Failure modes.** Race on partial UNIQUE → daemon counts 'skipped', continues. Source skill deleted between compose and confirm → FK CASCADE drops the graduation, RPC reports `graduation_not_found` (the `source_skill_deleted` guard is defensive only under CASCADE). Telemetry insert failure → `console.error` swallowed, daemon continues. RPC failure → `confirm_promotion` returns `{ok:false, reason}`; no partial writes (single tx).
+
+---
+
 ## 5. File Architecture (auto-generated)
 
 The Mermaid block below is refreshed by `sync_artefacts` after every worker success. Do not edit content between the markers by hand.
