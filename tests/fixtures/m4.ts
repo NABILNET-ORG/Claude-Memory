@@ -201,9 +201,12 @@ export async function insertThrowawayCurriculumTask(
 
 // ─── insertThrowawaySkill ─────────────────────────────────────────────────
 // M7 fixture. Inserts an agent_skills row under the test's project_id.
-// Default name carries the `__m7_test_` prefix so cleanupProject can sweep
-// GLOBAL clones minted by apply_graduation (project_id='GLOBAL', same name)
-// without touching production GLOBAL skills.
+// Default name embeds the SOURCE project_id as a prefix so the GLOBAL clone
+// (created by apply_graduation copying name verbatim) is uniquely
+// attributable to this test's pid — even though it lives at
+// project_id='GLOBAL'. This is what makes cleanupProject's GLOBAL sweep
+// safe under parallel node:test file execution (each file's child process
+// only sweeps GLOBAL clones whose name starts with ITS pid).
 
 export type ThrowawaySkillOpts = {
   name?: string;
@@ -221,7 +224,10 @@ export async function insertThrowawaySkill(
   projectId: string,
   opts: ThrowawaySkillOpts = {},
 ): Promise<number> {
-  const name = opts.name ?? `__m7_test_skill_${randomUUID().slice(0, 8)}`;
+  // Default name embeds the pid for parallel-test cleanup safety. Callers
+  // passing a custom name must include the pid as a prefix themselves to
+  // get the same isolation — see C5/C7 in graduation-handlers.test.ts.
+  const name = opts.name ?? `${projectId}__m7skill_${randomUUID().slice(0, 8)}`;
   const row: Record<string, unknown> = {
     project_id: projectId,
     name,
@@ -333,11 +339,13 @@ export async function cleanupProject(projectId: string): Promise<void> {
   await supabase.from("workflow_checkpoints").delete().eq("project_id", projectId);
   await supabase.from("cloud_backlog").delete().eq("project_id", projectId);
   await supabase.from("memory_chunks").delete().eq("project_id", projectId);
-  // GLOBAL clones minted by confirm_promotion. Name-prefix scoped so the
-  // production GLOBAL vault is untouched.
+  // GLOBAL clones minted by confirm_promotion. Sweep is pid-scoped — only
+  // rows whose name begins with this test's projectId get cleaned. This
+  // makes cleanupProject safe under parallel node:test file execution
+  // (different files' cleanup hooks don't trample each other's clones).
   await supabase
     .from("agent_skills")
     .delete()
     .eq("project_id", "GLOBAL")
-    .like("name", "__m7_test_%");
+    .like("name", `${projectId}__%`);
 }

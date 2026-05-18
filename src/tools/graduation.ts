@@ -139,3 +139,60 @@ export async function composeGlobalRationale(
     state_unchanged: true,
   };
 }
+
+// ─── confirmPromotion ─────────────────────────────────────────────────────
+// The sole TS call site that drives is_global=true row creation. Thin
+// wrapper around the apply_graduation SQL RPC — correctness lives in SQL
+// (atomic INSERT GLOBAL + UPDATE graduation in one tx). The RPC returns
+// jsonb in the shape this function's discriminated union represents.
+
+export type ConfirmPromotionInput = {
+  graduation_id: number;
+};
+
+export type ConfirmPromotionOutput =
+  | {
+      ok: true;
+      graduation_id: number;
+      promoted_global_skill_id: number;
+      decided_at: string;
+    }
+  | { ok: false; reason: string };
+
+export async function confirmPromotion(
+  input: ConfirmPromotionInput,
+): Promise<ConfirmPromotionOutput> {
+  if (input.graduation_id === undefined || input.graduation_id === null) {
+    return { ok: false, reason: "graduation_id_required" };
+  }
+  const { data, error } = await supabase.rpc("apply_graduation", {
+    p_graduation_id: input.graduation_id,
+  });
+  if (error) {
+    return { ok: false, reason: `confirm_db_error: ${error.message}` };
+  }
+  // The RPC always returns a non-null jsonb. Defensive parse in case the
+  // wire shape ever drifts.
+  if (!data || typeof data !== "object" || !("ok" in data)) {
+    return { ok: false, reason: "confirm_invalid_rpc_response" };
+  }
+  const rpcResult = data as {
+    ok: boolean;
+    reason?: string;
+    graduation_id?: number;
+    promoted_global_skill_id?: number;
+    decided_at?: string;
+  };
+  if (rpcResult.ok === true) {
+    return {
+      ok: true,
+      graduation_id: Number(rpcResult.graduation_id),
+      promoted_global_skill_id: Number(rpcResult.promoted_global_skill_id),
+      decided_at: String(rpcResult.decided_at),
+    };
+  }
+  return {
+    ok: false,
+    reason: rpcResult.reason ?? "confirm_unknown_error",
+  };
+}

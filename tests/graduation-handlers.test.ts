@@ -13,7 +13,7 @@ import {
   insertThrowawaySkill,
   insertThrowawayGraduation,
 } from "./fixtures/m4.js";
-import { composeGlobalRationale } from "../src/tools/graduation.js";
+import { composeGlobalRationale, confirmPromotion } from "../src/tools/graduation.js";
 
 const createdProjectIds: string[] = [];
 
@@ -225,4 +225,244 @@ test("B5: verdict='fail' + rationale='anything' → state='composed', rationale 
   assert.equal(row?.cross_project_verdict, "fail");
   assert.equal(row?.cross_project_evidence, "Skill is framework-specific (uses Express middleware shape).");
   assert.equal(row?.model, "orchestrator:claude-opus-4-7");
+});
+
+// ─── Suite C: confirmPromotion + apply_graduation RPC ────────────────────
+// The sole path that mints an is_global=true row. Wraps the atomic SQL RPC.
+// C4 is LOAD-BEARING: characterizes that PostgreSQL now() collapses to one
+// microsecond inside the RPC's transaction (mirrors S32-D1 C2 finding).
+
+test("C1: state='proposed' (not yet composed) → ok:false, wrong state", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, { state: "proposed" });
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.reason, /state must be composed/);
+  }
+});
+
+test("C2: state='composed' + empty rationale → RPC defense-in-depth blocks promotion", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  // Seed a malformed composed row directly via fixture (bypasses the
+  // composeGlobalRationale gate). The RPC's secondary guard must catch it.
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "evidence body",
+    model: "orchestrator:test",
+    composedAt: new Date().toISOString(),
+  });
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.reason, /rationale missing or under 10 chars/i);
+  }
+});
+
+test("C3: source skill deleted before confirm → ok:false (CASCADE drops the graduation, RPC reports not-found)", async () => {
+  // FK skill_graduations.source_skill_id → agent_skills(id) ON DELETE CASCADE.
+  // Deleting the source skill also drops the graduation, so the RPC's
+  // 'source_skill_deleted' guard is defensive only (e.g., a future SET NULL
+  // FK swap would reach it). Either error path is acceptable — both block
+  // the promotion, which is the safety invariant we care about.
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "Universal pattern for cross-stack applicability.",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "Evidence",
+    model: "orchestrator:test",
+    composedAt: new Date().toISOString(),
+  });
+  await supabase.from("agent_skills").delete().eq("id", skillId);
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(
+      result.reason === "graduation_not_found" ||
+        result.reason === "source_skill_deleted",
+      `Expected graduation_not_found or source_skill_deleted, got: ${result.reason}`,
+    );
+  }
+});
+
+test("C4: ATOMIC-TX PROOF — graduation.decided_at === new_skill.created_at === RPC.decided_at", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 15,
+    successRate: 0.92,
+    ageDaysOverride: 21,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "Universal pattern: idempotent UNIQUE-index enqueue across stacks.",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "Pattern recurs in Postgres, Mongo, Dynamo — universal.",
+    model: "orchestrator:claude-opus-4-7",
+    composedAt: new Date(Date.now() - 30_000).toISOString(),
+  });
+
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(typeof result.promoted_global_skill_id, "number");
+  assert.ok(result.promoted_global_skill_id > 0);
+  assert.equal(typeof result.decided_at, "string");
+
+  const { data: grad } = await supabase
+    .from("skill_graduations")
+    .select("decided_at, promoted_global_skill_id, state")
+    .eq("id", gradId)
+    .single();
+  const { data: newSkill } = await supabase
+    .from("agent_skills")
+    .select("created_at")
+    .eq("id", result.promoted_global_skill_id)
+    .single();
+
+  // The load-bearing assertion — microsecond-equal across three sources.
+  assert.equal(
+    grad?.decided_at,
+    newSkill?.created_at,
+    "graduation.decided_at must equal new_skill.created_at to the microsecond",
+  );
+  assert.equal(
+    grad?.decided_at,
+    result.decided_at,
+    "RPC.decided_at must equal graduation.decided_at to the microsecond",
+  );
+  console.log(
+    `[C4 atomic-tx proof] grad.decided_at = new_skill.created_at = RPC.decided_at = ${result.decided_at}`,
+  );
+});
+
+test("C5: post-confirm, the GLOBAL clone copies name/description/steps/trigger_keywords + resets telemetry", async () => {
+  const pid = newProject();
+  const sourceSteps = [{ step: "do_a" }, { step: "do_b" }];
+  const sourceTriggers = ["alpha", "beta"];
+  const skillId = await insertThrowawaySkill(pid, {
+    name: `${pid}__m7_test_C5_${Date.now()}`,
+    description: "Source skill description for C5 clone-fields characterization.",
+    steps: sourceSteps,
+    triggerKeywords: sourceTriggers,
+    frequencyUsed: 50, // intentionally non-zero — clone must reset
+    successRate: 0.97, // intentionally non-1.0 — clone must reset
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "Universal step sequence with cross-stack relevance.",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "Recurs across project A, B, C.",
+    model: "orchestrator:test",
+    composedAt: new Date().toISOString(),
+  });
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const { data: source } = await supabase
+    .from("agent_skills")
+    .select("name, description, steps, trigger_keywords")
+    .eq("id", skillId)
+    .single();
+  const { data: clone } = await supabase
+    .from("agent_skills")
+    .select(
+      "project_id, name, description, steps, trigger_keywords, frequency_used, success_rate, last_invoked_at, version",
+    )
+    .eq("id", result.promoted_global_skill_id)
+    .single();
+
+  assert.equal(clone?.project_id, "GLOBAL");
+  assert.equal(clone?.name, source?.name);
+  assert.equal(clone?.description, source?.description);
+  assert.deepEqual(clone?.steps, source?.steps);
+  assert.deepEqual(clone?.trigger_keywords, source?.trigger_keywords);
+  // Telemetry reset on the clone.
+  assert.equal(clone?.frequency_used, 0);
+  assert.equal(clone?.success_rate, 1.0);
+  assert.equal(clone?.last_invoked_at, null);
+  assert.equal(clone?.version, 1);
+});
+
+test("C6: graduation row post-confirm → state='approved', promoted_global_skill_id wired, decided_at non-null", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "Universal rationale of sufficient length.",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "Evidence",
+    model: "orchestrator:test",
+    composedAt: new Date().toISOString(),
+  });
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const { data: row } = await supabase
+    .from("skill_graduations")
+    .select("state, promoted_global_skill_id, decided_at")
+    .eq("id", gradId)
+    .single();
+  assert.equal(row?.state, "approved");
+  assert.equal(row?.promoted_global_skill_id, result.promoted_global_skill_id);
+  assert.ok(row?.decided_at !== null && row?.decided_at !== undefined);
+});
+
+test("C7: source skill UNTOUCHED — we clone, never mutate", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    name: `${pid}__m7_test_C7_${Date.now()}`,
+    description: "Original description that must survive promotion.",
+    frequencyUsed: 42,
+    successRate: 0.93,
+    ageDaysOverride: 30,
+  });
+  const before = await supabase
+    .from("agent_skills")
+    .select("project_id, name, description, frequency_used, success_rate")
+    .eq("id", skillId)
+    .single();
+
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "Universal rationale that justifies promotion.",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "Evidence",
+    model: "orchestrator:test",
+    composedAt: new Date().toISOString(),
+  });
+  const result = await confirmPromotion({ graduation_id: gradId });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const after = await supabase
+    .from("agent_skills")
+    .select("project_id, name, description, frequency_used, success_rate")
+    .eq("id", skillId)
+    .single();
+  assert.deepEqual(after.data, before.data, "source skill must be untouched after promotion");
 });

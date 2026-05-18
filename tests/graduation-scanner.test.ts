@@ -91,9 +91,10 @@ test("A4: skill younger than minAgeDays → excluded", async () => {
 
 test("A5: skill at project_id='GLOBAL' → never surfaces", async () => {
   // Track a fresh pid so the after-hook triggers GLOBAL cleanup sweep
-  // (the cleanupProject __m7_test_ name-prefix sweep clears the row below).
+  // (the per-pid name prefix on the GLOBAL row is what the sweep matches).
   const pid = newProject();
   const globalSkillId = await insertThrowawaySkill("GLOBAL", {
+    name: `${pid}__m7_a5_global_${Date.now()}`,
     frequencyUsed: 50,
     successRate: 0.99,
     ageDaysOverride: 30,
