@@ -13,7 +13,11 @@ import {
   insertThrowawaySkill,
   insertThrowawayGraduation,
 } from "./fixtures/m4.js";
-import { composeGlobalRationale, confirmPromotion } from "../src/tools/graduation.js";
+import {
+  composeGlobalRationale,
+  confirmPromotion,
+  rejectGraduation,
+} from "../src/tools/graduation.js";
 
 const createdProjectIds: string[] = [];
 
@@ -465,4 +469,102 @@ test("C7: source skill UNTOUCHED — we clone, never mutate", async () => {
     .eq("id", skillId)
     .single();
   assert.deepEqual(after.data, before.data, "source skill must be untouched after promotion");
+});
+
+// ─── Suite D: rejectGraduation handler ──────────────────────────────────
+// TS-only UPDATE per S33 user lock — no RPC for single-table state flip.
+// D3 explicitly characterizes the divergence from M5's rejectCurriculumTask
+// idempotent overwrite (S32-D1 finding #8): M7's reject REFUSES second
+// rejection and preserves the original rejection_reason.
+
+test("D1: reject state='proposed' → state='rejected', reason recorded, decided_at populated", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, { state: "proposed" });
+
+  const result = await rejectGraduation({
+    graduation_id: gradId,
+    reason: "Project-specific naming — does not generalize.",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.state, "rejected");
+  assert.ok(typeof result.decided_at === "string");
+
+  const { data: row } = await supabase
+    .from("skill_graduations")
+    .select("state, rejection_reason, decided_at")
+    .eq("id", gradId)
+    .single();
+  assert.equal(row?.state, "rejected");
+  assert.equal(row?.rejection_reason, "Project-specific naming — does not generalize.");
+  assert.ok(row?.decided_at !== null);
+});
+
+test("D2: reject state='composed' → same — both source states valid for reject", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, {
+    state: "composed",
+    proposedGlobalRationale: "Universal rationale draft.",
+    crossProjectVerdict: "pass",
+    crossProjectEvidence: "Evidence body",
+    model: "orchestrator:test",
+    composedAt: new Date().toISOString(),
+  });
+
+  const result = await rejectGraduation({
+    graduation_id: gradId,
+    reason: "On reflection, this couples to a specific stack.",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const { data: row } = await supabase
+    .from("skill_graduations")
+    .select("state, rejection_reason")
+    .eq("id", gradId)
+    .single();
+  assert.equal(row?.state, "rejected");
+  assert.equal(row?.rejection_reason, "On reflection, this couples to a specific stack.");
+});
+
+test("D3: IDEMPOTENCY — second reject on rejected row → ok:false, original reason preserved (diverges from M5)", async () => {
+  const pid = newProject();
+  const skillId = await insertThrowawaySkill(pid, {
+    frequencyUsed: 20,
+    successRate: 0.95,
+    ageDaysOverride: 30,
+  });
+  const gradId = await insertThrowawayGraduation(pid, skillId, { state: "proposed" });
+
+  const first = await rejectGraduation({ graduation_id: gradId, reason: "first rejection reason" });
+  assert.equal(first.ok, true);
+
+  // Second attempt — M7 refuses, unlike M5's rejectCurriculumTask which overwrites.
+  const second = await rejectGraduation({ graduation_id: gradId, reason: "second rejection reason" });
+  assert.equal(second.ok, false);
+  if (!second.ok) {
+    assert.equal(second.reason, "invalid_state_transition");
+  }
+
+  const { data: row } = await supabase
+    .from("skill_graduations")
+    .select("state, rejection_reason")
+    .eq("id", gradId)
+    .single();
+  assert.equal(row?.state, "rejected");
+  assert.equal(
+    row?.rejection_reason,
+    "first rejection reason",
+    "first reason must be preserved — M7 does NOT overwrite (diverges from M5)",
+  );
 });

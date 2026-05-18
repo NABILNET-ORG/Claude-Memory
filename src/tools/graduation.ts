@@ -196,3 +196,70 @@ export async function confirmPromotion(
     reason: rpcResult.reason ?? "confirm_unknown_error",
   };
 }
+
+// ─── rejectGraduation ─────────────────────────────────────────────────────
+// TS-only UPDATE per S33 user lock — no RPC for a single-table state flip.
+// State guard: rejects only allowed when current state IN ('proposed','composed').
+// Diverges from M5's rejectCurriculumTask: M7 REFUSES a second reject on an
+// already-rejected row (returns invalid_state_transition) rather than
+// silently overwriting the rejection_reason. Suite D3 locks this contract.
+
+export type RejectGraduationInput = {
+  graduation_id: number;
+  reason: string;
+};
+
+export type RejectGraduationOutput =
+  | { ok: true; graduation_id: number; state: "rejected"; decided_at: string }
+  | { ok: false; reason: string };
+
+export async function rejectGraduation(
+  input: RejectGraduationInput,
+): Promise<RejectGraduationOutput> {
+  if (input.graduation_id === undefined || input.graduation_id === null) {
+    return { ok: false, reason: "graduation_id_required" };
+  }
+  if (!input.reason || input.reason.trim().length === 0) {
+    return { ok: false, reason: "rejection_reason_required" };
+  }
+
+  const decidedAt = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("skill_graduations")
+    .update({
+      state: "rejected",
+      rejection_reason: input.reason,
+      decided_at: decidedAt,
+    })
+    .eq("id", input.graduation_id)
+    .in("state", ["proposed", "composed"])
+    .select("id, decided_at")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, reason: `reject_db_error: ${error.message}` };
+  }
+
+  if (data) {
+    return {
+      ok: true,
+      graduation_id: Number(data.id),
+      state: "rejected",
+      decided_at: data.decided_at as string,
+    };
+  }
+
+  // UPDATE matched zero rows. Probe to distinguish not-found from wrong-state.
+  const { data: probe, error: probeErr } = await supabase
+    .from("skill_graduations")
+    .select("state")
+    .eq("id", input.graduation_id)
+    .maybeSingle();
+  if (probeErr) {
+    return { ok: false, reason: `reject_db_error: ${probeErr.message}` };
+  }
+  if (!probe) {
+    return { ok: false, reason: "graduation_not_found" };
+  }
+  return { ok: false, reason: "invalid_state_transition" };
+}
