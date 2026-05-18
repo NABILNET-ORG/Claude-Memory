@@ -199,20 +199,145 @@ export async function insertThrowawayCurriculumTask(
   return data.id;
 }
 
+// ─── insertThrowawaySkill ─────────────────────────────────────────────────
+// M7 fixture. Inserts an agent_skills row under the test's project_id.
+// Default name carries the `__m7_test_` prefix so cleanupProject can sweep
+// GLOBAL clones minted by apply_graduation (project_id='GLOBAL', same name)
+// without touching production GLOBAL skills.
+
+export type ThrowawaySkillOpts = {
+  name?: string;
+  description?: string;
+  steps?: unknown[];
+  triggerKeywords?: string[];
+  frequencyUsed?: number;
+  successRate?: number;
+  // Backdate created_at by N days. Used by Suite A4 + smoke to satisfy the
+  // minAgeDays threshold without waiting wall-clock time.
+  ageDaysOverride?: number;
+};
+
+export async function insertThrowawaySkill(
+  projectId: string,
+  opts: ThrowawaySkillOpts = {},
+): Promise<number> {
+  const name = opts.name ?? `__m7_test_skill_${randomUUID().slice(0, 8)}`;
+  const row: Record<string, unknown> = {
+    project_id: projectId,
+    name,
+    version: 1,
+    description: opts.description ?? `__m7_test description for ${name}`,
+    steps: opts.steps ?? [],
+    trigger_keywords: opts.triggerKeywords ?? [],
+    embedding: ZERO_EMBEDDING,
+    frequency_used: opts.frequencyUsed ?? 0,
+    success_rate: opts.successRate ?? 1.0,
+  };
+  if (opts.ageDaysOverride !== undefined && opts.ageDaysOverride > 0) {
+    row.created_at = new Date(
+      Date.now() - opts.ageDaysOverride * 86_400_000,
+    ).toISOString();
+  }
+  const { data, error } = await supabase
+    .from("agent_skills")
+    .insert(row)
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(`insertThrowawaySkill failed: ${error?.message ?? "no row returned"}`);
+  }
+  return data.id;
+}
+
+// ─── insertThrowawayGraduation ────────────────────────────────────────────
+// M7 fixture. Inserts a skill_graduations row. Defaults state='proposed' with
+// NULL compose/decision columns — the test then drives composeGlobalRationale
+// / confirmPromotion / rejectGraduation to flip state through the lifecycle.
+
+export type ThrowawayGraduationOpts = {
+  state?: "proposed" | "composed" | "approved" | "rejected";
+  frequencyAtPropose?: number;
+  successRateAtPropose?: number;
+  ageDaysAtPropose?: number;
+  proposedGlobalRationale?: string | null;
+  crossProjectVerdict?: "pass" | "fail" | null;
+  crossProjectEvidence?: string | null;
+  model?: string | null;
+  composedAt?: string;
+  rejectionReason?: string | null;
+};
+
+export async function insertThrowawayGraduation(
+  projectId: string,
+  sourceSkillId: number,
+  opts: ThrowawayGraduationOpts = {},
+): Promise<number> {
+  const state = opts.state ?? "proposed";
+  const row: Record<string, unknown> = {
+    project_id: projectId,
+    source_skill_id: sourceSkillId,
+    state,
+    frequency_at_propose: opts.frequencyAtPropose ?? 10,
+    success_rate_at_propose: opts.successRateAtPropose ?? 0.95,
+    age_days_at_propose: opts.ageDaysAtPropose ?? 14,
+  };
+  // Compose-output columns are only meaningful for state in ('composed','approved','rejected').
+  if (opts.proposedGlobalRationale !== undefined) {
+    row.proposed_global_rationale = opts.proposedGlobalRationale;
+  }
+  if (opts.crossProjectVerdict !== undefined) {
+    row.cross_project_verdict = opts.crossProjectVerdict;
+  }
+  if (opts.crossProjectEvidence !== undefined) {
+    row.cross_project_evidence = opts.crossProjectEvidence;
+  }
+  if (opts.model !== undefined) {
+    row.model = opts.model;
+  }
+  if (opts.composedAt !== undefined) {
+    row.composed_at = opts.composedAt;
+  }
+  if (opts.rejectionReason !== undefined) {
+    row.rejection_reason = opts.rejectionReason;
+  }
+  const { data, error } = await supabase
+    .from("skill_graduations")
+    .insert(row)
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `insertThrowawayGraduation failed: ${error?.message ?? "no row returned"}`,
+    );
+  }
+  return data.id;
+}
+
 export async function cleanupProject(projectId: string): Promise<void> {
-  // Order matters: curriculum_tasks first (FKs to workflow_checkpoints via
-  // linked_checkpoint_id AND skill_candidates via linked_candidate_id),
-  // then skill_candidates (FKs agent_skills via promoted_skill_id ON DELETE
-  // SET NULL — safe to delete candidates first; agent_skills follow), then
-  // agent_skills (S32: M5 consumer atomic-promote tests mint real skill rows
-  // via promote_candidate_to_skill — they MUST be cleaned by project_id or
-  // they leak into the live agent_skills vault), then workflow_checkpoints
-  // (FKs to memory_chunks via source_chunk_id), then cloud_backlog, then
-  // memory_chunks.
+  // Order matters. FK direction map (children → parents):
+  //   * skill_graduations.source_skill_id → agent_skills.id (CASCADE)
+  //   * skill_graduations.promoted_global_skill_id → agent_skills.id (SET NULL)
+  //   * curriculum_tasks → workflow_checkpoints + skill_candidates (SET NULL)
+  //   * skill_candidates.promoted_skill_id → agent_skills.id (SET NULL)
+  //   * workflow_checkpoints.skill_id → agent_skills.id (SET NULL)
+  //   * workflow_checkpoints.source_chunk_id → memory_chunks.id (SET NULL)
+  //
+  // We DELETE children before parents to keep the trace clean even if
+  // CASCADE would also handle it. The GLOBAL sweep at the end clears
+  // confirm_promotion-minted clones (project_id='GLOBAL') by the
+  // `__m7_test_` name prefix — keeps live GLOBAL vault rows safe.
+  await supabase.from("skill_graduations").delete().eq("project_id", projectId);
   await supabase.from("curriculum_tasks").delete().eq("project_id", projectId);
   await supabase.from("skill_candidates").delete().eq("project_id", projectId);
   await supabase.from("agent_skills").delete().eq("project_id", projectId);
   await supabase.from("workflow_checkpoints").delete().eq("project_id", projectId);
   await supabase.from("cloud_backlog").delete().eq("project_id", projectId);
   await supabase.from("memory_chunks").delete().eq("project_id", projectId);
+  // GLOBAL clones minted by confirm_promotion. Name-prefix scoped so the
+  // production GLOBAL vault is untouched.
+  await supabase
+    .from("agent_skills")
+    .delete()
+    .eq("project_id", "GLOBAL")
+    .like("name", "__m7_test_%");
 }
