@@ -68,9 +68,20 @@ import {
   rejectCurriculumTask,
   rejectCurriculumTaskInputShape,
 } from "./tools/curriculum.js";
+import {
+  listGraduationCandidates,
+  listGraduationCandidatesInputShape,
+  composeGlobalRationale,
+  composeGlobalRationaleInputShape,
+  confirmPromotion,
+  confirmPromotionInputShape,
+  rejectGraduation,
+  rejectGraduationInputShape,
+} from "./tools/graduation.js";
 import { startCompactor } from "./trajectory/daemon.js";
 import { startSleepLearner } from "./sleep/daemon.js";
 import { startCurriculumDaemon } from "./curriculum/daemon.js";
+import { startGraduationDaemon } from "./graduation/daemon.js";
 import { startTelemetryPruner } from "./telemetry/pruner.js";
 import { ensureSchema, startKeepAlive, writeFrozenPatternsCache } from "./supabase.js";
 import { currentProjectId } from "./project.js";
@@ -117,6 +128,17 @@ startSleepLearner();
 // curriculum_tasks rows. Contains ZERO generative AI — Boundary Invariant #1
 // (ARCHITECTURE.md §4.7). .unref()'d so it never blocks process exit.
 startCurriculumDaemon();
+
+// Start the graduation daemon (Agentic OS 2026 / Mission 7 / SCM-S33-D1).
+// Deterministic propose-only queuer: every GRADUATION_INTERVAL_MS, scans
+// agent_skills for production-validated rows (frequency_used >= 10,
+// success_rate >= 0.90, age >= 14 days) and INSERTs skill_graduations
+// at state='proposed' with frozen telemetry snapshot. Contains ZERO
+// generative AI and NEVER calls apply_graduation — Boundary Invariant #1
+// (ARCHITECTURE.md §4.9). Sovereign Vetting is enforced structurally: the
+// daemon can NEVER mint is_global=true; that's the human-gated
+// confirm_promotion → apply_graduation RPC path only.
+startGraduationDaemon();
 
 // Start the telemetry retention pruner (Backlog #124 / ARCHITECTURE.md §4.8).
 // Rolling DELETE: every TELEMETRY_PRUNER_INTERVAL_MS, prunes daemon_telemetry
@@ -476,6 +498,50 @@ server.tool(
   rejectCurriculumTaskInputShape,
   async (args) => ({
     content: [{ type: "text", text: JSON.stringify(await rejectCurriculumTask(args), null, 2) }],
+  }),
+);
+
+// ─── Agentic OS 2026 — M7 Skill Graduation (SCM-S33-D1) ───────────────────
+// Promotion pipeline: M3 mints local agent_skills. M7 graduates
+// production-validated local skills to the GLOBAL vault. Strict separation:
+// the graduation_scanner daemon proposes (state='proposed'); the
+// Orchestrator drafts global_rationale via compose; a human gates promotion
+// via confirm. Apply is a single atomic SQL RPC (apply_graduation) — the
+// SOLE call site that mints is_global=true.
+
+server.tool(
+  "list_graduation_candidates",
+  "Inspect the M7 graduation queue. SELECT from skill_graduations with optional state ∈ {proposed, composed, approved, rejected} and project_id filters. Ordered by created_at DESC. Default limit 10, hard cap 50. Read-only — never mutates. Use to find graduations awaiting compose (state='proposed') or confirm (state='composed').",
+  listGraduationCandidatesInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await listGraduationCandidates(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "compose_global_rationale",
+  "Persist the Orchestrator-drafted Sovereign Vetting compose output to a 'proposed' graduation row. The Orchestrator (Claude) performs the actual LLM Cross-Project Test reasoning OUTSIDE this handler and passes the verdict ('pass' | 'fail'), evidence (≤120 words on universal vs project-specific), global_rationale (≥10 chars when verdict='pass', null otherwise), and model identifier. Server-side gates: row must be at state='proposed'; verdict='pass' requires global_rationale.trim().length >= 10; race-safe via WHERE state='proposed' guard. On success flips state→'composed'. The Orchestrator MUST follow this with confirm_promotion or reject_graduation — composing does NOT itself promote.",
+  composeGlobalRationaleInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await composeGlobalRationale(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "confirm_promotion",
+  "HUMAN-GATED PROMOTION TO GLOBAL. Calls the apply_graduation SQL RPC: atomic clone of the source agent_skill into a new GLOBAL row + UPDATE graduation→state='approved' in ONE transaction. PostgreSQL now() collapses graduation.decided_at and new_skill.created_at to the same microsecond (the C4 atomic-tx proof). Preconditions enforced by the RPC: graduation must be at state='composed' AND proposed_global_rationale length >= 10 AND source skill not already GLOBAL. Telemetry on the GLOBAL clone resets (frequency_used=0, success_rate=1.0); the local source skill is UNTOUCHED. This is the ONLY call site that mints is_global=true outside of save_memory({is_global:true}).",
+  confirmPromotionInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await confirmPromotion(args), null, 2) }],
+  }),
+);
+
+server.tool(
+  "reject_graduation",
+  "Veto a graduation proposal. TS-only UPDATE: skill_graduations SET state='rejected', rejection_reason=<reason>, decided_at=now() WHERE id=$1 AND state IN ('proposed','composed'). DIVERGES from reject_curriculum_task: a second reject on an already-rejected row returns ok:false (reason='invalid_state_transition') instead of silently overwriting. Rationale: GLOBAL rejection reasons carry audit weight for 'why didn't we promote X' — overwrites would erase that history.",
+  rejectGraduationInputShape,
+  async (args) => ({
+    content: [{ type: "text", text: JSON.stringify(await rejectGraduation(args), null, 2) }],
   }),
 );
 
