@@ -45,7 +45,8 @@
     "smoke:m4": "tsx scripts/smoke-m4.ts",
     "smoke:m5-rollback": "tsx scripts/smoke-m5-rollback.ts",
     "smoke:m5-stale": "tsx scripts/smoke-m5-stale.ts",
-    "smoke:m5-consumer": "tsx scripts/smoke-m5-consumer.ts"
+    "smoke:m5-consumer": "tsx scripts/smoke-m5-consumer.ts",
+    "smoke:m7": "tsx scripts/smoke-m7.ts"
   },
   "engines": {
     "node": ">=20"
