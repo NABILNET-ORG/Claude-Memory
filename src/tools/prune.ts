@@ -1,7 +1,13 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { currentProjectId } from "../project.js";
-import { supabase, listFileOriginsForProject } from "../supabase.js";
+import {
+  supabase,
+  listFileOriginsForProject,
+  deleteChunksForFile,
+} from "../supabase.js";
 
 export interface PruneArgs {
   explicit_paths: string[];
@@ -42,11 +48,39 @@ export async function pruneMemory(args: PruneArgs): Promise<PruneResult> {
     candidates.push(await classifyCandidate(raw, projectId, dbOrigins));
   }
 
+  if (!args.confirm) {
+    return {
+      mode: "dry_run",
+      project_id: projectId,
+      candidates,
+      deleted_total: 0,
+    };
+  }
+
+  let deletedTotal = 0;
+  const deletedItems: ManifestItem[] = [];
+  for (const c of candidates) {
+    if (c.skipped_reason) continue;
+    const n = await deleteChunksForFile(projectId, c.file_origin);
+    deletedTotal += n;
+    deletedItems.push({
+      file_origin: c.file_origin,
+      chunk_count: n,
+      was_orphan: true,
+    });
+  }
+
+  let manifestPath: string | undefined;
+  if (deletedItems.length > 0) {
+    manifestPath = await writeManifest(projectId, deletedItems);
+  }
+
   return {
-    mode: "dry_run",
+    mode: "deleted",
     project_id: projectId,
     candidates,
-    deleted_total: 0,
+    deleted_total: deletedTotal,
+    manifest_path: manifestPath,
   };
 }
 
@@ -105,4 +139,27 @@ async function countChunks(projectId: string, fileOrigin: string): Promise<numbe
     .eq("file_origin", fileOrigin);
   if (error) throw new Error(`countChunks failed: ${error.message}`);
   return count ?? 0;
+}
+
+interface ManifestItem {
+  file_origin: string;
+  chunk_count: number;
+  was_orphan: true;
+}
+
+async function writeManifest(
+  projectId: string,
+  items: ManifestItem[],
+): Promise<string> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dir = join(homedir(), ".claude-memory", "prune-backups", `${stamp}-${projectId}`);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "manifest.json");
+  const body = {
+    project_id: projectId,
+    prune_at: stamp,
+    items,
+  };
+  await writeFile(path, JSON.stringify(body, null, 2), "utf8");
+  return path;
 }
