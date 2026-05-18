@@ -1,8 +1,11 @@
-// Boundary Invariant #1 lint fence — SCM-S22-D1 (backlog #117).
+// Boundary Invariant #1 lint fence — SCM-S22-D1 (backlog #117), extended
+// for M7 (SCM-S33-D1) to cover src/graduation/**.
 //
 // Statically enforces: NO generative-AI imports or LLM HTTP endpoints inside
-// src/sleep/** or src/curriculum/**. Daemons mine + stub only; generative
-// reasoning is exclusively the Orchestrator's domain (Single Brain mandate).
+// src/sleep/**, src/curriculum/**, or src/graduation/**. Daemons + scanners
+// mine + stub only; generative reasoning is exclusively the Orchestrator's
+// domain (Single Brain mandate — compose_skill_candidate for M3,
+// compose_global_rationale for M7).
 //
 // Forbidden:
 //   - import / from "ollama"  or any relative path containing "/ollama"
@@ -20,7 +23,7 @@ import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { glob } from "glob";
 
-const ROOTS = ["src/sleep", "src/curriculum"] as const;
+const ROOTS = ["src/sleep", "src/curriculum", "src/graduation"] as const;
 
 type Rule = { name: string; regex: RegExp };
 
