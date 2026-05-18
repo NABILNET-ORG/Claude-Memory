@@ -20,8 +20,12 @@ import {
   uniqueProjectId,
   cleanupProject,
   insertThrowawayCurriculumTask,
+  insertThrowawaySkillCandidate,
 } from "./fixtures/m4.js";
-import { listCurriculumTasks } from "../src/tools/curriculum.js";
+import {
+  listCurriculumTasks,
+  pullCurriculumTask,
+} from "../src/tools/curriculum.js";
 
 const createdProjectIds: string[] = [];
 function newProject(): string {
@@ -91,5 +95,118 @@ describe("list_curriculum_tasks", () => {
     const fromA = await listCurriculumTasks({ project_id: projectA });
     assert.equal(fromA.count, 1, "project A sees its own row");
     assert.equal(fromA.tasks[0].target_path, "a3-only-in-A");
+  });
+});
+
+// ─── Suite B: pull_curriculum_task ────────────────────────────────────────
+
+describe("pull_curriculum_task", () => {
+  test("B1: empty queue returns claimed=false, task=null", async () => {
+    const projectId = newProject();
+    const result = await pullCurriculumTask({
+      project_id: projectId,
+      session_id: "s32-b1",
+    });
+    assert.equal(result.claimed, false);
+    assert.equal(result.task, null);
+  });
+
+  test("B2: single queued row → status flips to pulled, pulled_at + session stamped", async () => {
+    const projectId = newProject();
+    const id = await insertThrowawayCurriculumTask(projectId, {
+      kind: "refactor",
+      targetPath: "b2",
+    });
+
+    const beforeMs = Date.now();
+    const result = await pullCurriculumTask({
+      project_id: projectId,
+      session_id: "s32-b2",
+    });
+    const afterMs = Date.now();
+
+    assert.equal(result.claimed, true);
+    assert.ok(result.task, "task must be present when claimed=true");
+    assert.equal(result.task!.id, id);
+    assert.equal(result.task!.status, "pulled");
+    assert.equal(result.task!.pulled_by_session_id, "s32-b2");
+    const pulledAtMs = new Date(result.task!.pulled_at).getTime();
+    assert.ok(
+      pulledAtMs >= beforeMs - 2000 && pulledAtMs <= afterMs + 2000,
+      `pulled_at ${result.task!.pulled_at} within request window [${beforeMs}, ${afterMs}]`,
+    );
+  });
+
+  test("B3: linked_candidate_id rows pulled before unlinked (priority signal)", async () => {
+    const projectId = newProject();
+    // Seed an unlinked row FIRST so it has the older created_at — FIFO would
+    // claim it first if the priority signal were absent. The linked row is
+    // inserted SECOND but must still be pulled FIRST.
+    const unlinkedId = await insertThrowawayCurriculumTask(projectId, {
+      kind: "refactor",
+      targetPath: "b3-unlinked",
+    });
+    // Small sleep to guarantee distinct created_at timestamps.
+    await new Promise((r) => setTimeout(r, 50));
+    const candId = await insertThrowawaySkillCandidate(projectId, {
+      frequency: 5,
+      state: "mined",
+    });
+    const linkedId = await insertThrowawayCurriculumTask(projectId, {
+      kind: "refactor",
+      targetPath: "b3-linked",
+      linkedCandidateId: candId,
+    });
+
+    const first = await pullCurriculumTask({
+      project_id: projectId,
+      session_id: "s32-b3-1",
+    });
+    assert.equal(first.claimed, true);
+    assert.equal(first.task!.id, linkedId, "linked task pulled first despite being newer");
+
+    const second = await pullCurriculumTask({
+      project_id: projectId,
+      session_id: "s32-b3-2",
+    });
+    assert.equal(second.claimed, true);
+    assert.equal(second.task!.id, unlinkedId, "unlinked task pulled second");
+  });
+
+  test("B4: kind filter restricts claim to matching rows", async () => {
+    const projectId = newProject();
+    const rollbackId = await insertThrowawayCurriculumTask(projectId, {
+      kind: "rollback_repro",
+      targetPath: "b4-rb",
+    });
+    const refactorId = await insertThrowawayCurriculumTask(projectId, {
+      kind: "refactor",
+      targetPath: "b4-rf",
+    });
+
+    const first = await pullCurriculumTask({
+      project_id: projectId,
+      kind: "rollback_repro",
+      session_id: "s32-b4-1",
+    });
+    assert.equal(first.claimed, true);
+    assert.equal(first.task!.id, rollbackId);
+    assert.equal(first.task!.kind, "rollback_repro");
+
+    const second = await pullCurriculumTask({
+      project_id: projectId,
+      kind: "rollback_repro",
+      session_id: "s32-b4-2",
+    });
+    assert.equal(second.claimed, false, "no more rollback_repro rows");
+    assert.equal(second.task, null);
+
+    const third = await pullCurriculumTask({
+      project_id: projectId,
+      kind: "refactor",
+      session_id: "s32-b4-3",
+    });
+    assert.equal(third.claimed, true);
+    assert.equal(third.task!.id, refactorId, "refactor row still claimable under kind filter");
   });
 });
