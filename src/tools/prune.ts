@@ -37,7 +37,7 @@ export async function pruneMemory(args: PruneArgs): Promise<PruneResult> {
     throw new Error("explicit_paths is required and must be a non-empty array");
   }
 
-  const projectId = args.project_id ?? currentProjectId();
+  const projectId = args.project_id ?? currentProjectId;
   if (projectId === "GLOBAL") {
     throw new Error("project_id='GLOBAL' is not allowed for prune_memory");
   }

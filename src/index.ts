@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { syncLocalMemory } from "./tools/sync.js";
+import { pruneMemory } from "./tools/prune.js";
 import { searchMemory } from "./tools/search.js";
 import {
   listGlobalPatterns,
@@ -193,6 +194,17 @@ server.tool(
     confirm: z.boolean().optional(),
   },
   async (args) => ({ content: [{ type: "text", text: JSON.stringify(await syncLocalMemory(args), null, 2) }] }),
+);
+
+server.tool(
+  "prune_memory",
+  "Delete memory_chunks rows for explicit on-disk file paths whose source files have been removed locally. Pays off the README:489 deferral. Safety: explicit_paths is REQUIRED (no wildcard scans), confirm:false is the default and returns a dry-run preview, inline:* file_origins are always skipped (they have no disk file), project_id='GLOBAL' is rejected. Every confirmed delete is mirrored to a manifest under ~/.claude-memory/prune-backups/<stamp>-<project>/manifest.json for forensic reversal via re-sync.",
+  {
+    explicit_paths: z.array(z.string()).min(1).describe("Required. File paths whose memory_chunks rows should be considered for deletion. No wildcards — every path must be supplied explicitly."),
+    project_id: projectIdSchema,
+    confirm: z.boolean().optional().describe("Default false (dry-run). Set true to actually delete confirmed-orphan rows."),
+  },
+  async (args) => ({ content: [{ type: "text", text: JSON.stringify(await pruneMemory(args), null, 2) }] }),
 );
 
 server.tool(

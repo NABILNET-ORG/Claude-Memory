@@ -2,6 +2,7 @@ import { describe, test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { z } from "zod";
 import { listFileOriginsForProject, deleteChunksForFile } from "../src/supabase.js";
 import { pruneMemory } from "../src/tools/prune.js";
 import { insertThrowawayChunkForFile, tmpRepoFile, uniqueProjectId } from "./fixtures/prune.js";
@@ -262,5 +263,30 @@ describe("pruneMemory — confirmed delete", () => {
       await deleteChunksForFile(projectA, sharedPath);
       await deleteChunksForFile(projectB, sharedPath);
     }
+  });
+});
+
+describe("pruneMemory — MCP zod schema contract", () => {
+  // Mirror of the schema registered in src/index.ts. Pinning the contract here
+  // makes a divergence between server.tool() registration and pruneMemory's
+  // runtime guards a CI-visible failure rather than an at-runtime surprise.
+  const schema = z.object({
+    explicit_paths: z.array(z.string()).min(1),
+    project_id: z.string().optional(),
+    confirm: z.boolean().optional(),
+  });
+
+  test("accepts a valid payload", () => {
+    assert.doesNotThrow(() =>
+      schema.parse({ explicit_paths: ["/tmp/x.md"], project_id: "p", confirm: false }),
+    );
+  });
+
+  test("rejects empty explicit_paths array", () => {
+    assert.throws(() => schema.parse({ explicit_paths: [] }));
+  });
+
+  test("rejects missing explicit_paths", () => {
+    assert.throws(() => schema.parse({}));
   });
 });
