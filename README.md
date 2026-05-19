@@ -2,9 +2,9 @@
 
 # Smart Claude Memory
 
-![Smart Claude Memory v2.1.0 Master Schematic](docs/assets/schematic.png)
+![Smart Claude Memory v2.2.0 Master Schematic](docs/assets/schematic.png)
 
-*Master schematic — the definitive visual reference for the Smart Claude Memory v2.1.0 production baseline.*
+*Master schematic — the definitive visual reference for the Smart Claude Memory v2.2.0 production baseline.*
 
 **Hybrid cloud-local memory for Claude — semantic retrieval instead of context bloat.**
 
@@ -14,7 +14,7 @@
 [![pgvector](https://img.shields.io/badge/pgvector-HNSW-336791?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20embeddings-000)](https://ollama.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](#license)
-[![Version](https://img.shields.io/badge/version-2.1.0-green)](#)
+[![Version](https://img.shields.io/badge/version-2.2.0-green)](#)
 [![Developer](https://img.shields.io/badge/developer-NABILNET.AI-6e56cf?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyTDIgNy4xN0wxMiAxMi4zM0wyMiA3LjE3WiIvPjwvc3ZnPg==)](https://nabilnet.ai)
 
 **Developed by [NABILNET.AI](https://nabilnet.ai)**
@@ -29,7 +29,7 @@ Claude sessions load `memory.md`, `rules.md`, `cloud.md`, and a dozen other cont
 
 ## What this does
 
-`smart-claude-memory` is a **Model Context Protocol server** that replaces "read every .md at startup" with "search them on demand." It chunks your markdown notes, embeds them with a local Ollama model, stores them in Supabase (pgvector), and exposes **twenty-three tools** to Claude spanning memory, vision, backlog, hygiene, orchestration, and system health. The elevator pitch:
+`smart-claude-memory` is a **Model Context Protocol server** that replaces "read every .md at startup" with "search them on demand." It chunks your markdown notes, embeds them with a local Ollama model, stores them in Supabase (pgvector), and exposes **fifty MCP tools** to Claude spanning memory, vision, backlog, hygiene, orchestration, system health, transactional checkpoints (M4), autonomous curriculum (M5), observability + telemetry pruning (M6), human-gated skill graduation to GLOBAL (M7), and a Hybrid-RAG knowledge graph with a browser dashboard (M8). The elevator pitch:
 
 | Tool | Purpose |
 |---|---|
@@ -204,6 +204,27 @@ search_memory({ query: "auth flow", project_id: "acme-api" })
 | `compose_global_rationale` | Graduation | M7 race-safe persist of Orchestrator-LLM-drafted Cross-Project Test output to a `state='proposed'` graduation row. Server-side gates verdict ∈ {pass, fail}, evidence non-empty, model non-empty, and (when verdict='pass') `global_rationale.trim().length >= 10`. `verdict='fail'` coerces rationale to NULL. The handler NEVER itself calls an LLM — the Orchestrator passes its output in (mirrors S22-D1 `compose_skill_candidate`). |
 | `confirm_promotion` | Graduation | **HUMAN-GATED PROMOTION TO GLOBAL** — the sole `is_global=true` mint path outside of `save_memory({is_global:true})`. Calls the `apply_graduation` SQL RPC: atomic INSERT of a GLOBAL `agent_skills` clone + UPDATE `state='approved'` in ONE transaction. PostgreSQL `now()` collapses `graduation.decided_at === new_skill.created_at` to the microsecond (C4 atomic-tx proof). Source skill UNTOUCHED. |
 | `reject_graduation` | Graduation | M7 veto. TS-only UPDATE `WHERE state IN ('proposed','composed')`. Diverges from `reject_curriculum_task`: a second reject on an already-rejected row returns `ok:false` (reason='invalid_state_transition') instead of silently overwriting — GLOBAL rejection reasons carry audit weight. |
+
+### Full tool roster — 50 MCP tools by domain (v2.2.0)
+
+The table above documents the canonical headline surface. The complete roster, grouped by subsystem, follows. Each tool is registered in [src/index.ts](src/index.ts) and consumed via the MCP `tools/list` + `tools/call` protocol.
+
+| Domain | Tools | Count |
+|---|---|---|
+| **Memory + Vision** | `sync_local_memory` · `search_memory` · `save_memory` · `prune_memory` · `summarize_memory_file` · `list_global_patterns` · `index_image` | 7 |
+| **Backlog + Living Docs** | `manage_backlog` · `sync_artefacts` | 2 |
+| **Guardian (hook-bound)** | `check_code_hygiene` · `check_rule_conflicts` · `raise_verification_gate` · `confirm_verification` · `refactor_guard` · `analyze_regression` · `batch_freeze_patterns` · `list_frozen` · `freeze_file` · `unfreeze_file` · `sweep_legacy_backups` | 11 |
+| **Orchestrator (Sovereign)** | `delegate_task` · `upgrade_constitution` | 2 |
+| **Ops + Health** | `init_project` · `check_system_health` · `system_dashboard` | 3 |
+| **Trajectory (M2 Agent Diet)** | `compact_trajectory` · `get_trajectory_summary` | 2 |
+| **Skill Vault (M3 Sleep Learning)** | `compose_skill_candidate` · `promote_skill_candidate` · `reject_skill_candidate` · `list_skill_candidates` · `package_skill` · `request_skill` | 6 |
+| **Checkpoints (M4 Transactional Workflows)** | `checkpoint_create` · `checkpoint_commit` · `checkpoint_rollback` · `checkpoint_list` | 4 |
+| **Curriculum (M5 Single-Brain Closure)** | `list_curriculum_tasks` · `pull_curriculum_task` · `apply_curriculum_task` · `reject_curriculum_task` | 4 |
+| **Graduation to GLOBAL (M7)** | `list_graduation_candidates` · `compose_global_rationale` · `confirm_promotion` · `reject_graduation` | 4 |
+| **Knowledge Graph (M8.1 Hybrid RAG)** | `kg_upsert_node` · `kg_upsert_edge` · `list_kg_nodes` · `list_kg_edges` · `kg_hybrid_search` | 5 |
+| **Total** | | **50** |
+
+The GUI surface (M8.2, v2.2.0) is **not** an MCP tool — it's an HTTP server (`src/gui/server.ts`, `npm run gui`) that reuses `list_kg_nodes`/`list_kg_edges`/`list_graduation_candidates` etc. as in-process handlers, then renders the SVG Knowledge Graph + M7 graduation curation UI from modular static assets in [src/gui/public/](src/gui/public/). See [ARCHITECTURE.md §4.10 / §4.11](ARCHITECTURE.md) for the subsystem design.
 
 **Companion hook:** [hooks/md-policy.py](hooks/md-policy.py) enforces Zero-Local-MD allowlist, 750-line ceiling, frozen-feature patterns, and the Manual Test Gate from the Claude Code `PreToolUse` layer. Without it the Guardian tools are advisory; with it they are binding.
 
@@ -477,11 +498,16 @@ scripts/
 
 | Command | Purpose |
 |---|---|
-| `npm run build` | Compile TypeScript → `dist/` |
-| `npm run dev` | Run the server via `tsx` (no build step) |
-| `npm run start` | Run the compiled server |
+| `npm run build` | Three-step chain: `lint:boundaries` → `tsc` → `copy:gui`. Compiles TypeScript and mirrors `src/gui/public/` → `dist/gui/public/` for the modular dashboard (v2.2.0). |
+| `npm run lint:boundaries` | Boundary Invariant #1 fence — scans `src/sleep`, `src/curriculum`, `src/graduation` for forbidden LLM imports / endpoints. Runs first in `build`. |
+| `npm run copy:gui` | Zero-dep mirror of `src/gui/public/` → `dist/gui/public/` via `fs.cpSync` (no `cpx` / `fs-extra` introduced). Idempotent. |
+| `npm run dev` | Run the MCP server via `tsx` (no build step) |
+| `npm run start` | Run the compiled MCP server (`node dist/index.js`) |
+| `npm run gui` | Boot the Sovereign Command Center dashboard standalone on `127.0.0.1:7788` (`tsx src/gui/server.ts`). Cross-platform ESM entry-point guard (SCM-S37-P1). |
+| `npm run test` | Full hermetic suite via `node --test` — 246/246 as of v2.2.0 (stubbed Supabase + Ollama; no live infra needed) |
 | `npm run schema` | Apply `001_schema.sql` (or pass `-- <file>` for another) |
 | `npm run backup` | Dry-run backup of all `.md` in `MEMORY_ROOTS` |
+| `npm run smoke:m4` / `smoke:m5-rollback` / `smoke:m5-stale` / `smoke:m5-consumer` / `smoke:m7` | End-to-end smoke flows per milestone — exercise checkpoints (M4), rollback signals + stale-candidate triage + curriculum consumer (M5), and human-gated graduation (M7). |
 
 ---
 
@@ -519,7 +545,7 @@ For inquiries, integrations, or sovereign-grade Claude Code tooling, visit [nabi
 
 ### 🗺️ File Architecture
 
-_Auto-synced at 2026-05-19T08:12:11.454Z for `smart-claude-memory`._
+_Auto-synced at 2026-05-19T08:59:28.227Z for `smart-claude-memory`._
 
 ```mermaid
 flowchart TD

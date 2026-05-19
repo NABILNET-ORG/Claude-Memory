@@ -49,9 +49,7 @@
     "smoke:m5-stale": "tsx scripts/smoke-m5-stale.ts",
     "smoke:m5-consumer": "tsx scripts/smoke-m5-consumer.ts",
     "smoke:m7": "tsx scripts/smoke-m7.ts",
-    "gui": "tsx src/gui/server.ts",
-    "smoke:m8-kg": "tsx scripts/smoke-m8-kg.ts",
-    "smoke:m8-gui": "tsx scripts/smoke-m8-gui.ts"
+    "gui": "tsx src/gui/server.ts"
   },
   "overrides": {
     "archiver-utils": {

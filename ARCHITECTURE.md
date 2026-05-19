@@ -797,6 +797,102 @@ flowchart LR
 
 ---
 
+### 4.10 Hybrid-RAG Knowledge Graph & SVG Command Center (Agentic OS 2026 — Mission 8.1 / SCM-S36-D1)
+
+**Goal.** Lift the typed memory corpus (`memory_chunks` with `metadata.type ∈ {DECISION, PATTERN, ERROR, LOG}` from §4 Sovereign Taxonomy) into an explicit graph layer — typed nodes + directed edges — so retrieval can fuse semantic vector similarity with graph-walk reasoning. Surface the graph through a force-directed SVG visualizer in the operator dashboard so the Orchestrator (and the human) can inspect knowledge density, find connector nodes, and trace decision lineage at a glance.
+
+**Three architectural mandates.**
+
+1. **Daemon-only extraction.** All node/edge creation flows through the `graph_extractor` daemon. Heuristic, deterministic, batched, idempotent — **no LLM inference inside the extraction path**. Mirrors the Single Brain Boundary already applied to `src/sleep/**` (M3), `src/curriculum/**` (M5), and `src/graduation/**` (M7). The CI `lint:boundaries` fence extension is tracked under Backlog #117; M8.1's source files (`src/graph/**`) join the boundary-protected set in v2.2.0.
+2. **Cross-type edges are first-class.** Edges carry an explicit `type` (e.g., `DEPENDS_ON`, `MITIGATES`, `EVIDENCED_BY`, `REFERENCES`) plus a `confidence` score and a back-pointer (`source_chunk_id`) to the memory row that justified the inference. The graph never invents edges in a vacuum — every edge is grounded in a chunk the operator can re-read.
+3. **Read-mostly, write-rare.** Read tools (`list_kg_nodes`, `list_kg_edges`, `kg_hybrid_search`) are deterministic SQL + GIN-indexed JSONB filters — zero embedding cost on retrieval. The two write tools (`kg_upsert_node`, `kg_upsert_edge`) are exposed as MCP surface for Orchestrator-curated upserts but are NOT the primary write path; the daemon is. Per-call latency on reads is bounded by the same `(project_id, type, label_prefix)` index pattern §4.9 uses for `skill_graduations` listings.
+
+**Schema (`scripts/020_knowledge_graph.sql`).** Two tables and one hybrid-RAG RPC:
+
+- `kg_nodes(id bigserial PK, project_id text NOT NULL, type text NOT NULL, label text NOT NULL, source_chunk_id bigint NULL → memory_chunks(id) ON DELETE SET NULL, properties jsonb DEFAULT '{}', created_at timestamptz DEFAULT now())`. Partial `UNIQUE(project_id, type, label) WHERE source_chunk_id IS NULL` deduplicates orchestrator-curated nodes; daemon-mined nodes can coexist via the `source_chunk_id` lineage. `btree(project_id, type)`, `gin(properties jsonb_path_ops)`.
+- `kg_edges(id bigserial PK, project_id text NOT NULL, source_id bigint NOT NULL → kg_nodes(id) ON DELETE CASCADE, target_id bigint NOT NULL → kg_nodes(id) ON DELETE CASCADE, type text NOT NULL, confidence real CHECK 0..1, source_chunk_id bigint NULL → memory_chunks(id) ON DELETE SET NULL, properties jsonb DEFAULT '{}', created_at timestamptz DEFAULT now())`. `UNIQUE(project_id, source_id, target_id, type)`, `btree(source_id)`, `btree(target_id)`.
+- `kg_hybrid_search(p_project_id, p_query_embedding, p_k, p_metadata_filter)` — `SECURITY DEFINER` RPC. Joins `memory_chunks` (vector similarity ANN scan via the existing HNSW index) against `kg_nodes.source_chunk_id` to surface both the semantic hits AND the nodes/edges anchored on the same chunks. Returns a discriminated union so the caller can render both surfaces side-by-side. **RLS:** `deny_anon_authenticated` (mirrors 006/010/011/012/014/015/016/017_skill_graduations).
+
+**MCP tool surface (`src/tools/kg.ts`, 5 handlers — registered in `src/index.ts` under banner "Agentic OS 2026 — M8 Hybrid RAG Knowledge Graph (SCM-S36-D1)").**
+
+- `list_kg_nodes({ project_id?, type?, label_prefix?, k?, offset? })` — read-only; default `k=60`, hard cap `200` (the SVG visualizer's design budget).
+- `list_kg_edges({ project_id?, k?, offset? })` — read-only; default `k=120`, hard cap `500`. The GUI `/api/graph` route prunes cross-set edges client-side so a `?type=FILE` filter doesn't render dangling endpoints.
+- `kg_upsert_node({ project_id, type, label, properties?, source_chunk_id? })` — idempotent on the partial UNIQUE; returns `{ok, id, created|updated}`.
+- `kg_upsert_edge({ project_id, source_id, target_id, type, confidence?, properties?, source_chunk_id? })` — idempotent on the full UNIQUE; returns `{ok, id, created|updated}`.
+- `kg_hybrid_search({ project_id, query, k?, metadata_filter? })` — embeds the query via Ollama (`nomic-embed-text`, 768d), then calls the SQL RPC. The hybrid result rows carry both the chunk vector score AND any anchored node/edge — letting the Orchestrator decide whether to follow the semantic hit or the graph relation.
+
+**Daemon (`src/graph/{daemon,extractor}.ts`).** Mirrors `src/graduation/daemon.ts` shape: module-level state, `.unref()`'d interval (default `GRAPH_EXTRACTOR_INTERVAL_MS=120000` — 2 min, tighter than M5/M7's 1h because per-tick batch is small), re-entrancy guard, per-batch `try/finally`. Each tick:
+
+1. Selects up to `GRAPH_EXTRACTOR_BATCH` (default 10) chunks where `metadata->>'type' IS NOT NULL` and `id` exceeds the daemon's last-processed cursor.
+2. For each chunk, the extractor's heuristic rules emit candidate `{type, label, properties}` tuples per node-class + `{source_id, target_id, type, confidence}` per edge-class. Rules live in `src/graph/extractor.ts` — pure functions, no I/O, no LLM. Token-level signals are confidence-scaled.
+3. Each candidate flows through `kg_upsert_node` / `kg_upsert_edge`; idempotency conflicts (`23505`) increment `skipped`; real DB errors increment `errored`.
+4. Daemon emits standard `run_started` / `run_ended` / `run_errored` events into `daemon_telemetry` (§4.8 Observability) and gains a `graph_extractor` block in `check_system_health` + `system_dashboard`.
+
+**SVG Command Center (`src/gui/server.ts` `/api/graph` route + `src/gui/public/app.js` renderer).** The GUI dashboard ships a force-directed graph view: requests `/api/graph?node_limit=60&edge_limit=120&type=…&label_prefix=…&project_id=…`, runs a simulated annealing pass client-side (`k_rep`, `k_attr`, `ideal`, `max_iter` tuned during Session 37 Visual QA — no chaos at 60 nodes, all inside the 1000×600 viewBox, min pairwise distance >2× radius), and renders each `<g class="node">` clickable into a detail drawer that shows the back-pointer `source_chunk_id`, type, properties JSONB, and the surrounding edge degree. The dashboard's force-directed parameters and node-radius scaling (`radiusForType`) are exercised by `tests/gui-graph.test.ts` and verified end-to-end in browser by SESSION-37-REPORT.md.
+
+**Health / dashboard impact.** `graph_extractor` joins `sleep_learner`, `curriculum_scanner`, `trajectory_compactor`, `telemetry_pruner`, `graduation_scanner` as the 6th observed daemon. `check_system_health` derivation rules (§4.8) apply unchanged. `system_dashboard`'s `rollupFor` aggregator sums `nodes_created` + `edges_created` per tick into `items_processed`.
+
+**Boundary Invariant #1 preservation.** `src/graph/**` imports only `supabase`, `currentProjectId`, the extractor's pure heuristic rules, and `../telemetry/emit.js`. No model SDKs, no LLM endpoint strings. When the CI `lint:boundaries` fence extension (Backlog #117) lands, `src/graph/**` joins the protected set with zero refactor cost.
+
+**Failure modes.** Memory_chunks deleted between scan and upsert → FK CASCADE/SET NULL handles it cleanly (edges drop with their endpoint, nodes lose source lineage but persist). Cursor jump on cold start → daemon reads max-id checkpoint from telemetry; first-run cost is one full scan, amortized over subsequent ticks. RPC failure → handler returns `{ok:false, reason}`; daemon counts `errored`, continues.
+
+---
+
+### 4.11 Modular GUI Subsystem (Agentic OS 2026 — Mission 8.2 / SCM-S38-D1)
+
+**Goal.** Replace the monolithic 703-line `DASHBOARD_HTML` template string at `src/gui/static.ts` with a modular static-asset surface (`src/gui/public/{index.html,style.css,app.js}`) served by a small, secure, dependency-free HTTP server. The dashboard's HTML/CSS/JS now diff cleanly file-by-file, ship with per-asset Content-Type and Cache-Control headers, and survive operator-authored CSP reasoning per resource — without introducing a single new runtime dependency (no Express, no Koa, no `mime`, no `cpx`, no `fs-extra`).
+
+**Three architectural mandates.**
+
+1. **Cross-mode `PUBLIC_DIR` resolution.** The asset root is resolved once at module-load via `path.resolve(path.dirname(fileURLToPath(import.meta.url)), "public")`. The same logical path resolves to `src/gui/public/` when `npm run gui` runs the source via `tsx`, AND to `dist/gui/public/` when `node dist/gui/server.js` runs the built ESM output. No `process.cwd()`, no `__dirname` CommonJS shim, no environment-variable plumbing. Promoted to the GLOBAL Knowledge Vault as SCM-S38-P1 (universal pattern for any Node ≥16.7 ESM service that ships static assets through a `tsc src→dist` build).
+2. **Zero-dependency build mirror.** `tsc` does not copy non-`.ts` files. The build chain extends from `lint:boundaries && tsc` to `lint:boundaries && tsc && npm run copy:gui` where `copy:gui` runs [scripts/copy-gui-public.ts](scripts/copy-gui-public.ts) — a 40-line script using `fs.cpSync(src, dest, { recursive: true, force: true })` (Node-built-in ≥16.7) with idempotent `fs.rmSync` cleanup. No `cpx`, no `cpy`, no `fs-extra`, no shell `cp -r` (works on Windows + POSIX identically).
+3. **Containment-grade static serving.** `serveStatic(res, reqPath)` enforces a strict sandbox: URI-decode → strip leading slashes → empty path coerces to `index.html` → resolve under `PUBLIC_DIR` → reject any resolved path where `path.relative(PUBLIC_DIR, abs).startsWith("..")` (catches `%2E%2E%2F` and other naive-prefix-bypass traversals) → `readFile` → set Content-Type from an explicit 16-entry MIME map → set Content-Length → end. `ENOENT`/`EISDIR` → JSON 404; other errors re-throw to the outer 500 handler.
+
+**Routing surface (`src/gui/server.ts`).**
+
+- `GET /` → `serveStatic("/index.html")`.
+- `GET /api/health` → JSON `{ok, service:"scm-gui", version: GUI_VERSION}`.
+- `GET /api/graduations[?project_id=&state=&k=&offset=]` → wraps `listGraduationCandidates`.
+- `POST /api/graduations/:id/{compose,confirm,reject}` → wraps the three M7 mutation handlers.
+- `GET /api/graph[?project_id=&node_limit=&edge_limit=&type=&label_prefix=]` → wraps `listKgNodes` + `listKgEdges`, prunes cross-set edges so a `?type=FILE` filter doesn't return dangling endpoints, returns a `{ok, project_id, params, nodes, edges, stats:{node_count, edge_count, type_breakdown}}` envelope.
+- Static fall-through (`GET` not matching `/api/*`) → `serveStatic(path)`.
+- All other → JSON 404.
+
+**Defense-in-depth headers (every response).**
+
+| Header | Value | Why |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | Block MIME-sniffing exploits. |
+| `X-Frame-Options` | `DENY` | Block iframe embedding (no clickjacking surface). |
+| `Referrer-Policy` | `no-referrer` | Don't leak the GUI URL to outbound links. |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'` | Scoped, minimal — only the two Google Fonts hostnames the operator-authored `index.html` references are added beyond `'self'`. Everything else is same-origin. |
+
+**Token-auth contract (`SCM_GUI_TOKEN` env, optional).** When configured, token is enforced **only on `/api/*` routes** (except `/api/health`, which stays open for liveness probes). The dashboard HTML and its static assets (CSS, JS, fonts, images) stay open — browsers cannot attach a custom header to a `<link rel="stylesheet">` request, so token-gating static assets would block the dashboard from loading entirely. The `tests/gui.test.ts` token suite locks this contract: `GET /` 200, `GET /style.css` 200, `GET /app.js` 200, `GET /api/health` 200, `GET /api/graduations` 401 without token, 200 with correct header.
+
+**Cross-platform standalone entry-point (SCM-S37-P1).** The conditional `if (import.meta.url === pathToFileURL(process.argv[1])...)` idiom is broken on Windows in 3 independent ways (slash count, percent-encoded spaces, drive-letter casing). The guard at the bottom of `server.ts` instead compares `path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])`. Verified through `npm run gui` on Windows + POSIX in Sessions 37 and 38.
+
+**Test surface (246 cases across 21 files — full hermetic suite, no live infra).**
+
+- `tests/gui.test.ts` — 5 suites: health + static, list route, mutation routes, failure surface, token auth. 5 dedicated static-serve tests landed in M8.2 (CSS MIME, JS MIME, missing-asset 404, `%2E%2E%2F` traversal blocked, static-stays-open-with-token).
+- `tests/gui-graph.test.ts` — the M8.1 `/api/graph` route contract: param clamping, cross-set edge pruning, type-breakdown rollup, token gate, failure surface, plus a static-asset content-anchors test that reads `public/index.html` + `public/app.js` directly to assert the graph-panel + `loadGraph` symbols.
+
+**Build verification.**
+
+```
+npm run build:
+  [lint-boundaries] OK — scanned 6 file(s) under src/sleep, src/curriculum, src/graduation
+  [tsc]             clean (no diagnostics)
+  [copy-gui-public] 3 file(s) → dist\gui\public
+```
+
+**Files in the v2.2.0 published tarball** (relevant subset, total 144 files / 270.6 kB packed): `dist/gui/server.js` (17.4 kB), `dist/gui/public/index.html` (12.4 kB), `dist/gui/public/style.css` (48.7 kB), `dist/gui/public/app.js` (40.9 kB). The deleted `src/gui/static.ts` does NOT ship.
+
+**Boundary preservation.** `src/gui/**` does not import any LLM SDK, does not call any LLM endpoint, and is not under the `lint:boundaries` protected set — the GUI is an orchestrator-driven surface, not a daemon, so the Single Brain Boundary applies upstream (at the handler-input layer) rather than at the import-graph layer. `serveStatic` itself touches only `node:fs/promises`, `node:path`, `node:url`, and the in-process MIME map.
+
+**Failure modes.** Missing `dist/gui/public/` (forgot `npm run copy:gui`) → every `GET /style.css` etc. returns 404, dashboard loads with an unstyled HTML skeleton; immediately diagnosable via `ls dist/gui/public/`. URI-decoding failure on a malformed percent-encoding → falls back to the raw request path (no exception leaks to client). Symlink inside `public/` pointing outside the sandbox → `path.resolve` follows the symlink during `readFile`; the `path.relative` containment check runs on the symlink path itself, not the target — workaround: don't put symlinks inside `public/`. (Same trade-off as Express's `static()` default behavior.)
+
+---
+
 ## 5. File Architecture (auto-generated)
 
 The Mermaid block below is refreshed by `sync_artefacts` after every worker success. Do not edit content between the markers by hand.
@@ -1217,6 +1313,7 @@ flowchart TD
 | **v1.1.4** | **Architecture Guard + Automatic Session Handoff — Core 3 audit on init_project, session-end regenerates per-section diagrams, next_session_command_markdown handoff** |
 | **v2.0.0-rc1** | **Release Candidate — bundles Typed Retrieval + Strict Project Isolation (Sovereign Taxonomy on memory_chunks.metadata, GIN(jsonb_path_ops) index, match_memory_chunks p_metadata_filter, save_memory tool with category-prompting description) AND Global Knowledge Vault + Multi-IDE (reserved 'GLOBAL' project_id, dual-scope match_memory_chunks p_include_global, save_memory metadata.is_global, init_project Capabilities Header, docs/IDE-INTEGRATION.md for Cursor/Windsurf/Cline). $0 — pure pgvector + JSONB + same Ollama infra. Originally tagged as a separate milestone but folded back into rc1 — release candidate semantics, not yet a stable major.** |
 | **v2.1.0** | **GLOBAL Vault UX — browse-only `list_global_patterns` MCP tool (tiered output: preview default + `include_content:true` opt-in; full JSONB `metadata_filter` matching `search_memory`; offset/limit pagination defaulting to 10 with `created_at DESC, id DESC`; pure SQL — zero embedding cost). `init_project.capabilities` extended: `global_scope` gains `browse_tool` + `browse_args`, `context_gathering_hints` gains a GLOBAL-browse exemplar, `protocol` bumped to `smart-claude-memory/v2.1.0`. Zero new dependencies, zero new indexes, zero new migrations — reuses the existing GIN(jsonb_path_ops) index and `pg` pool.** |
+| **v2.2.0** | **Agentic OS 2026 production baseline — multi-mission bundle covering Sessions 22–38. Adds: M3 Sleep Learning (auto-mine + Orchestrator-curated promote via `compose_skill_candidate` / `promote_skill_candidate` — Single Brain mandate, `src/sleep/proposer.ts` deleted, NOT-NULL crash-catch); M4 Transactional Workflows (§ above — `workflow_checkpoints` + `terminal_committed_checkpoint` + replay-via-`trajectory_summaries`); M5 Autonomous Curriculum (§4.7 — deterministic queuer daemon, `apply_curriculum_task` atomic M3 auto-promote, NO generative AI in `src/curriculum/**`); M6 Observability (§4.8 — `daemon_telemetry` event-sourcing + `system_dashboard` 24h rollups + `check_system_health` derived per-daemon status + `telemetry_pruner` retention); M7 Skill Graduation (§4.9 — human-gated 3-state proposal lifecycle, atomic `apply_graduation` clone-to-GLOBAL, lint-fence Boundary Invariant #1 extension); M8.1 Hybrid-RAG Knowledge Graph (§4.10 — `kg_nodes`/`kg_edges` schema, deterministic `graph_extractor` daemon, 5 MCP tools, force-directed SVG Command Center verified at 60 nodes / 0 overlaps / drawer / filter end-to-end in Session 37 Visual QA); M8.2 Modular GUI (§4.11 — replaces 703-line `DASHBOARD_HTML` monolith with `src/gui/public/{index.html,style.css,app.js}` served via zero-dep `serveStatic` + `import.meta.url`-resolved `PUBLIC_DIR` + `fs.cpSync` build copy + URI-decoded path-traversal guard + Google-Fonts-scoped CSP relaxation, GLOBAL pattern SCM-S38-P1); cross-platform ESM standalone-entry-point fix (SCM-S37-P1, GLOBAL pattern). Surface growth: MCP tools 23 → **50** · SQL migrations through `020_knowledge_graph.sql` · npm scripts include the 3-step `build` chain (`lint:boundaries && tsc && copy:gui`) · test suite **246/246** across 21 files (was ~50). Zero new runtime dependencies across the entire arc.** |
 
 ---
 
