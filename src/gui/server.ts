@@ -22,6 +22,7 @@
 
 import http from "node:http";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { URL, fileURLToPath } from "node:url";
 import {
   listGraduationCandidates as defaultList,
@@ -39,7 +40,33 @@ import {
   type ListKgNodesInput,
   type ListKgEdgesInput,
 } from "../tools/kg.js";
-import { DASHBOARD_HTML } from "./static.js";
+
+// Static asset root — resolves to src/gui/public when tsx-running directly
+// (npm run gui) and to dist/gui/public after `tsc` builds. The build step
+// `npm run copy:gui` mirrors src/gui/public/ → dist/gui/public/.
+const PUBLIC_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "public",
+);
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".map": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+};
 
 export const GUI_VERSION = "1.0.0";
 
@@ -104,9 +131,12 @@ export function createGuiServer(opts: GuiServerOptions = {}): http.Server {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");
+    // CSP allows JetBrains Mono via Google Fonts (declared in the
+    // user-authored index.html): style-src extension for the stylesheet,
+    // font-src for the @font-face downloads. Everything else stays same-origin.
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'",
     );
 
     try {
@@ -114,7 +144,10 @@ export function createGuiServer(opts: GuiServerOptions = {}): http.Server {
       const method = (req.method ?? "GET").toUpperCase();
       const path = url.pathname;
 
-      if (token !== null && path !== "/" && path !== "/api/health") {
+      // Token guards the API surface only — dashboard HTML and its static
+      // assets (CSS, JS, images, fonts) must load alongside the page itself.
+      // /api/health stays open so an operator can probe liveness without a token.
+      if (token !== null && path.startsWith("/api/") && path !== "/api/health") {
         const sent = pickHeader(req.headers["x-scm-gui-token"]);
         if (sent !== token) {
           return sendJson(res, 401, { ok: false, reason: "unauthorized" });
@@ -122,7 +155,7 @@ export function createGuiServer(opts: GuiServerOptions = {}): http.Server {
       }
 
       if (method === "GET" && path === "/") {
-        return sendHtml(res, 200, DASHBOARD_HTML);
+        return serveStatic(res, "/index.html");
       }
 
       if (method === "GET" && path === "/api/health") {
@@ -278,6 +311,13 @@ export function createGuiServer(opts: GuiServerOptions = {}): http.Server {
         }
       }
 
+      // Static asset fall-through — any GET that didn't match an API route
+      // is attempted as a file from PUBLIC_DIR. serveStatic itself 404s if
+      // the file is missing or escapes the public sandbox.
+      if (method === "GET" && !path.startsWith("/api/")) {
+        return serveStatic(res, path);
+      }
+
       sendJson(res, 404, { ok: false, reason: "not_found", path });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -339,12 +379,47 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
   res.end(json);
 }
 
-function sendHtml(res: http.ServerResponse, status: number, body: string): void {
-  res.writeHead(status, {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-  });
-  res.end(body);
+async function serveStatic(
+  res: http.ServerResponse,
+  reqPath: string,
+): Promise<void> {
+  // URI-decode so paths like /style%2Ecss still resolve; fall back to raw
+  // path if decoding throws (e.g. malformed percent-encoding).
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(reqPath);
+  } catch {
+    decoded = reqPath;
+  }
+
+  // Strip leading slashes; "/" → index.html.
+  const stripped = decoded.replace(/^\/+/, "");
+  const target = stripped.length === 0 ? "index.html" : stripped;
+
+  // Resolve under PUBLIC_DIR and reject anything that escapes via ../ or
+  // an absolute path. `path.relative` is the canonical containment check.
+  const abs = path.resolve(PUBLIC_DIR, target);
+  const rel = path.relative(PUBLIC_DIR, abs);
+  if (rel.length > 0 && (rel.startsWith("..") || path.isAbsolute(rel))) {
+    return sendJson(res, 404, { ok: false, reason: "not_found", path: reqPath });
+  }
+
+  try {
+    const buf = await readFile(abs);
+    const ext = path.extname(abs).toLowerCase();
+    const mime = MIME_TYPES[ext] ?? "application/octet-stream";
+    res.writeHead(200, {
+      "Content-Type": mime,
+      "Content-Length": buf.byteLength,
+    });
+    res.end(buf);
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "ENOENT" || code === "EISDIR") {
+      return sendJson(res, 404, { ok: false, reason: "not_found", path: reqPath });
+    }
+    throw e;
+  }
 }
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {

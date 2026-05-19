@@ -393,11 +393,19 @@ describe("gui /api/graph — token gate", () => {
 
 // ─── dashboard panel wired in ─────────────────────────────────────────────
 
-describe("dashboard HTML — graph panel wired in", () => {
-  it("DASHBOARD_HTML contains graph panel hooks", async () => {
-    const { DASHBOARD_HTML } = await import("../src/gui/static.js");
-    assert.match(DASHBOARD_HTML, /graph-panel/);
-    assert.match(DASHBOARD_HTML, /graph-svg/);
-    assert.match(DASHBOARD_HTML, /loadGraph/);
+describe("dashboard static assets — graph panel wired in", () => {
+  it("public/index.html + app.js contain graph panel hooks", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const nodePath = await import("node:path");
+    const here = nodePath.dirname(fileURLToPath(import.meta.url));
+    const publicDir = nodePath.resolve(here, "..", "src", "gui", "public");
+
+    const html = await readFile(nodePath.join(publicDir, "index.html"), "utf-8");
+    assert.match(html, /graph-panel/);
+    assert.match(html, /graph-svg/);
+
+    const js = await readFile(nodePath.join(publicDir, "app.js"), "utf-8");
+    assert.match(js, /loadGraph/);
   });
 });

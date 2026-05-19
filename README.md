@@ -519,7 +519,7 @@ For inquiries, integrations, or sovereign-grade Claude Code tooling, visit [nabi
 
 ### 🗺️ File Architecture
 
-_Auto-synced at 2026-05-18T15:31:06.105Z for `smart-claude-memory`._
+_Auto-synced at 2026-05-19T07:56:33.184Z for `smart-claude-memory`._
 
 ```mermaid
 flowchart TD
@@ -596,7 +596,7 @@ flowchart TD
   n11 --> n35
   n36["SESSION-34-REPORT.md"]
   n11 --> n36
-  n37["… (5 more)"]
+  n37["… (7 more)"]
   n11 --> n37
   n38["specs/"]
   n5 --> n38
@@ -696,9 +696,9 @@ flowchart TD
   n62 --> n85
   n86["backup-and-remove.ts"]
   n62 --> n86
-  n87["e2e-incremental-test.ts"]
+  n87["copy-gui-public.ts"]
   n62 --> n87
-  n88["… (27 more)"]
+  n88["… (28 more)"]
   n62 --> n88
   n89["src/"]
   n0 --> n89
@@ -722,190 +722,196 @@ flowchart TD
   n96 --> n98
   n99["gui/"]
   n89 --> n99
-  n100["server.ts"]
+  n100["public/"]
   n99 --> n100
-  n101["static.ts"]
-  n99 --> n101
-  n102["lib/"]
-  n89 --> n102
-  n103["migrations.ts"]
-  n102 --> n103
-  n104["sleep/"]
-  n89 --> n104
-  n105["daemon.ts"]
-  n104 --> n105
-  n106["miner.ts"]
-  n104 --> n106
-  n107["telemetry/"]
+  n101["app.js"]
+  n100 --> n101
+  n102["index.html"]
+  n100 --> n102
+  n103["style.css"]
+  n100 --> n103
+  n104["server.ts"]
+  n99 --> n104
+  n105["lib/"]
+  n89 --> n105
+  n106["migrations.ts"]
+  n105 --> n106
+  n107["sleep/"]
   n89 --> n107
-  n108["emit.ts"]
+  n108["daemon.ts"]
   n107 --> n108
-  n109["pruner.ts"]
+  n109["miner.ts"]
   n107 --> n109
-  n110["types.ts"]
-  n107 --> n110
-  n111["tools/"]
-  n89 --> n111
-  n112["backlog.ts"]
-  n111 --> n112
-  n113["batch-freeze-patterns.ts"]
-  n111 --> n113
-  n114["bloat-audit.ts"]
-  n111 --> n114
-  n115["checkpoint.ts"]
-  n111 --> n115
-  n116["compact.ts"]
-  n111 --> n116
-  n117["conflict.ts"]
-  n111 --> n117
-  n118["curriculum.ts"]
-  n111 --> n118
-  n119["frozen-cache.ts"]
-  n111 --> n119
-  n120["graduation.ts"]
-  n111 --> n120
-  n121["health.ts"]
-  n111 --> n121
-  n122["hygiene.ts"]
-  n111 --> n122
-  n123["image.ts"]
-  n111 --> n123
-  n124["kg.ts"]
-  n111 --> n124
-  n125["list-global-patterns.ts"]
-  n111 --> n125
-  n126["orchestrator.ts"]
-  n111 --> n126
-  n127["policy.ts"]
-  n111 --> n127
-  n128["prune.ts"]
-  n111 --> n128
-  n129["refactor.ts"]
-  n111 --> n129
-  n130["save.ts"]
-  n111 --> n130
-  n131["search.ts"]
-  n111 --> n131
-  n132["setup.ts"]
-  n111 --> n132
-  n133["shared-schemas.ts"]
-  n111 --> n133
-  n134["skills.ts"]
-  n111 --> n134
-  n135["sleep.ts"]
-  n111 --> n135
-  n136["sovereign-constitution.ts"]
-  n111 --> n136
-  n137["… (4 more)"]
-  n111 --> n137
-  n138["trajectory/"]
-  n89 --> n138
-  n139["daemon.ts"]
-  n138 --> n139
-  n140["stripper.ts"]
-  n138 --> n140
-  n141["summarizer.ts"]
-  n138 --> n141
-  n142["transactions/"]
-  n89 --> n142
-  n143["checkpoint.ts"]
-  n142 --> n143
-  n144["chunker.ts"]
-  n89 --> n144
-  n145["config.ts"]
+  n110["telemetry/"]
+  n89 --> n110
+  n111["emit.ts"]
+  n110 --> n111
+  n112["pruner.ts"]
+  n110 --> n112
+  n113["types.ts"]
+  n110 --> n113
+  n114["tools/"]
+  n89 --> n114
+  n115["backlog.ts"]
+  n114 --> n115
+  n116["batch-freeze-patterns.ts"]
+  n114 --> n116
+  n117["bloat-audit.ts"]
+  n114 --> n117
+  n118["checkpoint.ts"]
+  n114 --> n118
+  n119["compact.ts"]
+  n114 --> n119
+  n120["conflict.ts"]
+  n114 --> n120
+  n121["curriculum.ts"]
+  n114 --> n121
+  n122["frozen-cache.ts"]
+  n114 --> n122
+  n123["graduation.ts"]
+  n114 --> n123
+  n124["health.ts"]
+  n114 --> n124
+  n125["hygiene.ts"]
+  n114 --> n125
+  n126["image.ts"]
+  n114 --> n126
+  n127["kg.ts"]
+  n114 --> n127
+  n128["list-global-patterns.ts"]
+  n114 --> n128
+  n129["orchestrator.ts"]
+  n114 --> n129
+  n130["policy.ts"]
+  n114 --> n130
+  n131["prune.ts"]
+  n114 --> n131
+  n132["refactor.ts"]
+  n114 --> n132
+  n133["save.ts"]
+  n114 --> n133
+  n134["search.ts"]
+  n114 --> n134
+  n135["setup.ts"]
+  n114 --> n135
+  n136["shared-schemas.ts"]
+  n114 --> n136
+  n137["skills.ts"]
+  n114 --> n137
+  n138["sleep.ts"]
+  n114 --> n138
+  n139["sovereign-constitution.ts"]
+  n114 --> n139
+  n140["… (4 more)"]
+  n114 --> n140
+  n141["trajectory/"]
+  n89 --> n141
+  n142["daemon.ts"]
+  n141 --> n142
+  n143["stripper.ts"]
+  n141 --> n143
+  n144["summarizer.ts"]
+  n141 --> n144
+  n145["transactions/"]
   n89 --> n145
-  n146["index.ts"]
-  n89 --> n146
-  n147["ollama.ts"]
+  n146["checkpoint.ts"]
+  n145 --> n146
+  n147["chunker.ts"]
   n89 --> n147
-  n148["project-detect.ts"]
+  n148["config.ts"]
   n89 --> n148
-  n149["project.ts"]
+  n149["index.ts"]
   n89 --> n149
-  n150["supabase.ts"]
+  n150["ollama.ts"]
   n89 --> n150
-  n151["verification-gate.ts"]
+  n151["project-detect.ts"]
   n89 --> n151
-  n152["version.ts"]
+  n152["project.ts"]
   n89 --> n152
-  n153["tests/"]
-  n0 --> n153
-  n154["fixtures/"]
-  n153 --> n154
-  n155["m4.ts"]
-  n154 --> n155
-  n156["prune.ts"]
-  n154 --> n156
-  n157["sql_fixtures/"]
-  n153 --> n157
-  n158["006_smoke.sql"]
+  n153["supabase.ts"]
+  n89 --> n153
+  n154["verification-gate.ts"]
+  n89 --> n154
+  n155["version.ts"]
+  n89 --> n155
+  n156["tests/"]
+  n0 --> n156
+  n157["fixtures/"]
+  n156 --> n157
+  n158["m4.ts"]
   n157 --> n158
-  n159["006_verify.sql"]
+  n159["prune.ts"]
   n157 --> n159
-  n160["capabilities.test.ts"]
-  n153 --> n160
-  n161["checkpoint.test.ts"]
-  n153 --> n161
-  n162["curriculum-consumer.test.ts"]
-  n153 --> n162
-  n163["curriculum-scanner.test.ts"]
-  n153 --> n163
-  n164["graduation-daemon.test.ts"]
-  n153 --> n164
-  n165["graduation-handlers.test.ts"]
-  n153 --> n165
-  n166["graduation-scanner.test.ts"]
-  n153 --> n166
-  n167["graph-daemon.test.ts"]
-  n153 --> n167
-  n168["graph-extractor.test.ts"]
-  n153 --> n168
-  n169["gui-graph.test.ts"]
-  n153 --> n169
-  n170["gui.test.ts"]
-  n153 --> n170
-  n171["health.test.ts"]
-  n153 --> n171
-  n172["kg.test.ts"]
-  n153 --> n172
-  n173["list-global-patterns.test.ts"]
-  n153 --> n173
-  n174["migrations.test.ts"]
-  n153 --> n174
-  n175["orchestrator.test.ts"]
-  n153 --> n175
-  n176["prune.test.ts"]
-  n153 --> n176
-  n177["search-graph-rag.test.ts"]
-  n153 --> n177
-  n178["trajectory-daemon.test.ts"]
-  n153 --> n178
-  n179["trajectory-stripper.test.ts"]
-  n153 --> n179
-  n180["trajectory-summarizer.test.ts"]
-  n153 --> n180
-  n181[".env.example"]
-  n0 --> n181
-  n182[".gitignore"]
-  n0 --> n182
-  n183["ARCHITECTURE.md"]
-  n0 --> n183
-  n184["CHANGELOG.md"]
+  n160["sql_fixtures/"]
+  n156 --> n160
+  n161["006_smoke.sql"]
+  n160 --> n161
+  n162["006_verify.sql"]
+  n160 --> n162
+  n163["capabilities.test.ts"]
+  n156 --> n163
+  n164["checkpoint.test.ts"]
+  n156 --> n164
+  n165["curriculum-consumer.test.ts"]
+  n156 --> n165
+  n166["curriculum-scanner.test.ts"]
+  n156 --> n166
+  n167["graduation-daemon.test.ts"]
+  n156 --> n167
+  n168["graduation-handlers.test.ts"]
+  n156 --> n168
+  n169["graduation-scanner.test.ts"]
+  n156 --> n169
+  n170["graph-daemon.test.ts"]
+  n156 --> n170
+  n171["graph-extractor.test.ts"]
+  n156 --> n171
+  n172["gui-graph.test.ts"]
+  n156 --> n172
+  n173["gui.test.ts"]
+  n156 --> n173
+  n174["health.test.ts"]
+  n156 --> n174
+  n175["kg.test.ts"]
+  n156 --> n175
+  n176["list-global-patterns.test.ts"]
+  n156 --> n176
+  n177["migrations.test.ts"]
+  n156 --> n177
+  n178["orchestrator.test.ts"]
+  n156 --> n178
+  n179["prune.test.ts"]
+  n156 --> n179
+  n180["search-graph-rag.test.ts"]
+  n156 --> n180
+  n181["trajectory-daemon.test.ts"]
+  n156 --> n181
+  n182["trajectory-stripper.test.ts"]
+  n156 --> n182
+  n183["trajectory-summarizer.test.ts"]
+  n156 --> n183
+  n184[".env.example"]
   n0 --> n184
-  n185["CLAUDE.md"]
+  n185[".gitignore"]
   n0 --> n185
-  n186["LICENSE"]
+  n186["ARCHITECTURE.md"]
   n0 --> n186
-  n187["marketplace.json"]
+  n187["CHANGELOG.md"]
   n0 --> n187
-  n188["package-lock.json"]
+  n188["CLAUDE.md"]
   n0 --> n188
-  n189["package.json"]
+  n189["LICENSE"]
   n0 --> n189
-  n190["project_file_architecture.md"]
+  n190["marketplace.json"]
   n0 --> n190
-  n191["README.md"]
+  n191["package-lock.json"]
   n0 --> n191
-  n192["tsconfig.json"]
+  n192["package.json"]
   n0 --> n192
+  n193["project_file_architecture.md"]
+  n0 --> n193
+  n194["README.md"]
+  n0 --> n194
+  n195["tsconfig.json"]
+  n0 --> n195
 ```

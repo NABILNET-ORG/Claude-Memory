@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Smart Claude Memory — M7 Graduations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Left rail / mission identifier -->
+    <aside class="rail" aria-hidden="true">
+      <div class="crest" title="Smart Claude Memory">
+        <svg viewBox="0 0 32 32" fill="none">
+          <circle cx="16" cy="16" r="13" stroke="#00e0ff" stroke-width="1.2" opacity="0.4"></circle>
+          <circle cx="16" cy="16" r="8"  stroke="#00e0ff" stroke-width="1.2" opacity="0.7"></circle>
+          <circle cx="16" cy="16" r="2"  fill="#00e0ff"></circle>
+          <line x1="16" y1="1"  x2="16" y2="6"  stroke="#00e0ff" stroke-width="1.2"></line>
+          <line x1="16" y1="26" x2="16" y2="31" stroke="#00e0ff" stroke-width="1.2"></line>
+          <line x1="1"  y1="16" x2="6"  y2="16" stroke="#00e0ff" stroke-width="1.2"></line>
+          <line x1="26" y1="16" x2="31" y2="16" stroke="#00e0ff" stroke-width="1.2"></line>
+        </svg>
+      </div>
+      <div class="pulse"></div>
+      <div class="seg"></div>
+      <div class="nav">
+        <span title="Mission">M7</span>
+        <span title="Section">·</span>
+        <span title="Channel">GR</span>
+      </div>
+      <div class="vstack">
+        <div class="vlabel">SCM · MISSION CTRL · SECTOR 07</div>
+      </div>
+      <div class="seg"></div>
+      <div class="nav" style="color: var(--text-dim);">
+        <span>v8.1</span>
+      </div>
+    </aside>
+
+    <div class="stage">
+      <header class="cc-header">
+        <div class="header-row">
+          <div class="brand">
+            <span class="badge">SCM</span>
+            <h1>SMART CLAUDE MEMORY<span class="sep">//</span><span class="accent">M7 GRADUATIONS</span></h1>
+          </div>
+
+          <div class="telemetry">
+            <span class="tele"><span class="dot"></span><span class="k">link</span><span class="v ok" id="tele-link">stable</span></span>
+            <span class="model-badge" title="Last active orchestrator model"><span class="k">model</span><span class="v" id="model-name">—</span></span>
+            <span class="tele"><span class="k" id="tele-tz-label">local</span><span class="v" id="tele-utc">--:--:--</span></span>
+            <span class="tele"><span class="k">proposed</span><span class="v accent" id="tele-proposed">·</span></span>
+            <span class="tele"><span class="k">composed</span><span class="v violet" id="tele-composed">·</span></span>
+            <span class="tele"><span class="k">approved</span><span class="v ok" id="tele-approved">·</span></span>
+            <span class="tele"><span class="k">rejected</span><span class="v err" id="tele-rejected">·</span></span>
+          </div>
+
+          <div class="header-right">
+            <span id="health">·</span>
+            <button id="refresh">refresh</button>
+            <button id="settings-open" type="button" aria-label="Open settings" title="Settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <g class="gear">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
+                </g>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="substrip">
+        <span class="crumb">mission</span>
+        <span class="arrow">›</span>
+        <span class="crumb">m7</span>
+        <span class="arrow">›</span>
+        <span class="crumb" style="color: var(--accent);">graduations</span>
+        <span class="grow"></span>
+        <span class="ticker"><span class="blip"></span>orchestrator: claude-opus-4-7 · queue depth nominal · auto-refresh 30s</span>
+      </div>
+
+      <main>
+        <section class="lane" data-state="proposed">
+          <h2>proposed <span class="count" data-count="proposed">0</span></h2>
+          <div class="cards" data-cards="proposed"></div>
+        </section>
+        <section class="lane" data-state="composed">
+          <h2>composed <span class="count" data-count="composed">0</span></h2>
+          <div class="cards" data-cards="composed"></div>
+        </section>
+        <section class="lane" data-state="approved">
+          <h2>approved <span class="count" data-count="approved">0</span></h2>
+          <div class="cards" data-cards="approved"></div>
+        </section>
+        <section class="lane" data-state="rejected">
+          <h2>rejected <span class="count" data-count="rejected">0</span></h2>
+          <div class="cards" data-cards="rejected"></div>
+        </section>
+      </main>
+
+      <section class="graph-panel" id="graph-panel">
+        <header class="graph-header">
+          <h2>Knowledge Graph</h2>
+          <div class="graph-controls">
+            <label>Nodes <input type="number" id="g-node-limit" value="60" min="1" max="200" /></label>
+            <label>Edges <input type="number" id="g-edge-limit" value="120" min="1" max="500" /></label>
+            <label>Type <input type="text" id="g-type-filter" placeholder="(any)" /></label>
+            <button id="g-reload" type="button">Reload</button>
+            <span id="g-stats" class="muted"></span>
+          </div>
+        </header>
+        <div class="graph-canvas-wrap">
+          <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Knowledge Graph"></svg>
+          <div class="graph-zoom" aria-hidden="true">
+            <button type="button" id="g-zoom-in"  title="zoom in">+</button>
+            <button type="button" id="g-zoom-out" title="zoom out">−</button>
+            <button type="button" id="g-zoom-fit" title="reset view">⊙</button>
+          </div>
+          <div class="graph-hud">
+            <span><span class="k">zoom</span><span class="v" id="g-hud-zoom">1.00×</span></span>
+            <span><span class="k">pan</span><span class="v" id="g-hud-pan">0,0</span></span>
+            <span><span class="k">temp</span><span class="v" id="g-hud-temp">·</span></span>
+          </div>
+          <aside id="graph-detail" class="graph-detail" hidden>
+            <h3 id="gd-label">—</h3>
+            <p><span class="muted">type:</span> <code id="gd-type">—</code></p>
+            <p><span class="muted">source chunk:</span> <code id="gd-src">—</code></p>
+            <pre id="gd-props" class="props"></pre>
+            <button id="gd-close" type="button">Close</button>
+          </aside>
+        </div>
+        <div class="legend">
+          <span class="item dec"><span class="sw"></span>Decision</span>
+          <span class="item pat"><span class="sw"></span>Pattern</span>
+          <span class="item err"><span class="sw"></span>Error</span>
+          <span class="item fil"><span class="sw"></span>File</span>
+          <span class="item not"><span class="sw"></span>Note</span>
+        </div>
+      </section>
+
+      <footer class="cc-footer">
+        <span class="item"><span class="dot"></span>uplink <b>OK</b></span>
+        <span class="item"><span class="dot warn"></span>quorum <b>2 / 3</b></span>
+        <span class="item">latency <b id="foot-latency">12ms</b></span>
+        <span class="item">sec lvl <b>OMEGA</b></span>
+        <span class="grow"></span>
+        <span class="item">build <b>scm-8.1.0</b></span>
+        <span class="item">op <b>cmdr.root</b></span>
+      </footer>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <dialog id="composeDialog">
+    <h3>Compose Global Rationale</h3>
+    <form id="composeForm">
+      <input type="hidden" name="graduation_id" />
+      <label>Verdict</label>
+      <select name="verdict">
+        <option value="pass">pass</option>
+        <option value="fail">fail</option>
+      </select>
+      <label>Evidence (≤120 words)</label>
+      <textarea name="evidence" required></textarea>
+      <label>Global Rationale (≥10 chars, required if pass)</label>
+      <textarea name="global_rationale"></textarea>
+      <label>Model</label>
+      <input name="model" value="orchestrator:claude-opus-4-7" required />
+      <div class="row">
+        <button type="button" data-close>cancel</button>
+        <button type="submit" class="primary">save compose</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="rejectDialog">
+    <h3>Reject Graduation</h3>
+    <form id="rejectForm">
+      <input type="hidden" name="graduation_id" />
+      <label>Rejection Reason</label>
+      <textarea name="reason" required></textarea>
+      <div class="row">
+        <button type="button" data-close>cancel</button>
+        <button type="submit" class="primary">confirm reject</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ─── Settings drawer ───────────────────────────────────────────── -->
+  <div id="drawer-backdrop" data-settings-close></div>
+  <aside id="settings-drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="settings-title" aria-hidden="true">
+    <header class="drawer-header">
+      <h2 id="settings-title">System Settings</h2>
+      <button type="button" class="drawer-close" data-settings-close aria-label="Close settings">✕</button>
+    </header>
+    <div class="drawer-body">
+
+      <section class="drawer-section">
+        <h3>Time Zone</h3>
+        <div class="seg-control" role="radiogroup" aria-label="Time zone">
+          <button type="button" data-set="timezone" data-value="local" aria-pressed="true">Local</button>
+          <button type="button" data-set="timezone" data-value="utc"   aria-pressed="false">UTC</button>
+        </div>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Auto-Refresh</h3>
+        <select id="set-refresh" class="cc-select" aria-label="Dashboard polling frequency">
+          <option value="off">Off</option>
+          <option value="1s">Every 1s</option>
+          <option value="5s">Every 5s</option>
+          <option value="10s">Every 10s</option>
+          <option value="15s">Every 15s</option>
+          <option value="30s">Every 30s</option>
+          <option value="1m">Every 1 min</option>
+          <option value="5m">Every 5 min</option>
+        </select>
+      </section>
+
+      <section class="drawer-section">
+        <h3>Visual Tweaks</h3>
+        <label class="slider-row">
+          <span>Node Size</span>
+          <input type="range" id="set-node-size" class="cc-range" min="0.5" max="1.8" step="0.05" value="1" />
+          <output id="out-node-size">1.00×</output>
+        </label>
+        <label class="slider-row">
+          <span>Edge Opacity</span>
+          <input type="range" id="set-edge-opacity" class="cc-range" min="0.05" max="1" step="0.05" value="1" />
+          <output id="out-edge-opacity">1.00</output>
+        </label>
+        <label class="slider-row">
+          <span>Neon Glow</span>
+          <input type="range" id="set-glow" class="cc-range" min="0" max="2" step="0.05" value="1" />
+          <output id="out-glow">1.00×</output>
+        </label>
+      </section>
+
+      <section class="drawer-section">
+        <div class="drawer-actions">
+          <button type="button" id="set-reset">Reset</button>
+        </div>
+      </section>
+
+    </div>
+    <footer class="drawer-footer">
+      persisted to localStorage · <code>scm.settings</code>
+    </footer>
+  </aside>
+
+  
+
+  <!-- Main dashboard logic -->
+  <script src="app.js"></script>
+</body>
+</html>

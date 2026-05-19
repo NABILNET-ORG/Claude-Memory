@@ -112,13 +112,48 @@ describe("gui server — health + static", () => {
     await close();
   });
 
-  it("GET / returns the dashboard HTML", async () => {
+  it("GET / returns the dashboard HTML from public/index.html", async () => {
     const r = await fetch(`${baseUrl}/`);
     assert.equal(r.status, 200);
     assert.match(r.headers.get("content-type") ?? "", /text\/html/);
     const body = await r.text();
-    assert.match(body, /SOVEREIGN COMMAND CENTER/);
+    // Anchors that should survive future cosmetic edits to index.html.
+    assert.match(body, /<title>Smart Claude Memory/);
     assert.match(body, /M7 GRADUATIONS/);
+  });
+
+  it("GET /style.css returns CSS with text/css content-type", async () => {
+    const r = await fetch(`${baseUrl}/style.css`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type") ?? "", /text\/css/);
+    const body = await r.text();
+    assert.ok(body.length > 0, "style.css body should not be empty");
+  });
+
+  it("GET /app.js returns JS with application/javascript content-type", async () => {
+    const r = await fetch(`${baseUrl}/app.js`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type") ?? "", /application\/javascript/);
+    const body = await r.text();
+    assert.ok(body.length > 0, "app.js body should not be empty");
+  });
+
+  it("GET /missing-asset.png returns 404 with ok:false", async () => {
+    const r = await fetch(`${baseUrl}/missing-asset.png`);
+    assert.equal(r.status, 404);
+    const body = (await r.json()) as { ok: boolean; reason: string };
+    assert.equal(body.ok, false);
+    assert.equal(body.reason, "not_found");
+  });
+
+  it("blocks URL-encoded path traversal (%2E%2E%2F → ../)", async () => {
+    // Real-world traversal attack vector: percent-encode ../ to skirt naive
+    // prefix checks. serveStatic decodes then checks containment via path.relative.
+    const r = await fetch(`${baseUrl}/%2E%2E%2Fpackage.json`);
+    assert.equal(r.status, 404);
+    const body = (await r.json()) as { ok: boolean; reason: string };
+    assert.equal(body.ok, false);
+    assert.equal(body.reason, "not_found");
   });
 
   it("GET /api/health returns ok:true and a version", async () => {
@@ -359,5 +394,14 @@ describe("gui server — token auth", () => {
   it("root HTML stays open even with token configured", async () => {
     const r = await fetch(`${baseUrl}/`);
     assert.equal(r.status, 200);
+  });
+
+  it("static assets stay open even with token configured", async () => {
+    // Stylesheets and scripts loaded by the dashboard can't send a custom
+    // token header — they must remain unauthenticated. Token guards /api/* only.
+    const css = await fetch(`${baseUrl}/style.css`);
+    assert.equal(css.status, 200);
+    const js = await fetch(`${baseUrl}/app.js`);
+    assert.equal(js.status, 200);
   });
 });

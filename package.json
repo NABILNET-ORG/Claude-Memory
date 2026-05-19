@@ -37,7 +37,8 @@
   },
   "scripts": {
     "lint:boundaries": "tsx scripts/lint-boundaries.ts",
-    "build": "npm run lint:boundaries && tsc",
+    "copy:gui": "tsx scripts/copy-gui-public.ts",
+    "build": "npm run lint:boundaries && tsc && npm run copy:gui",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "schema": "tsx scripts/apply-schema.ts",
